@@ -27,7 +27,6 @@ import { NodePackageInstallTask } from '@angular-devkit/schematics/tasks';
 import { Schema as ComponentOptions } from '../component/schema';
 import { NodeDependencyType, addPackageJsonDependency } from '../utility/dependencies';
 import { latestVersions } from '../utility/latest-versions';
-import { applyLintFix } from '../utility/lint-fix';
 import { relativePathToWorkspaceRoot } from '../utility/paths';
 import { validateProjectName } from '../utility/validation';
 import { getWorkspace, updateWorkspace } from '../utility/workspace';
@@ -50,7 +49,7 @@ function addDependenciesToPackageJson(options: ApplicationOptions) {
       {
         type: NodeDependencyType.Dev,
         name: 'typescript',
-        version: latestVersions.TypeScript,
+        version: latestVersions['typescript'],
       },
     ].forEach((dependency) => addPackageJsonDependency(host, dependency));
 
@@ -324,7 +323,6 @@ export default function (options: ApplicationOptions): Rule {
         MergeStrategy.Overwrite,
       ),
       options.skipPackageJson ? noop() : addDependenciesToPackageJson(options),
-      options.lintFix ? applyLintFix(appDir) : noop(),
     ]);
   };
 }

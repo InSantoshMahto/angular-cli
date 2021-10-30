@@ -1,22 +1,25 @@
 {
   "compilerOptions": {
     "declaration": true,
+    "esModuleInterop": true,
     "module": "commonjs",
     "moduleResolution": "node",
     "noEmitOnError": true,
     "noFallthroughCasesInSwitch": true,
+    "noImplicitOverride": true,
     "noUnusedParameters": false,
     "noUnusedLocals": false,
+    "useUnknownInCatchVariables": false,
     "outDir": "./dist",
     "rootDir": ".",
     "skipLibCheck": true,
     "strict": true,
     "target": "es2019",
-    "lib": ["es2019"],
+    "lib": ["es2020"],
     "baseUrl": "",
     "rootDirs": [".", "./dist-schema/", "./bazel-bin/"],
     "typeRoots": ["./node_modules/@types"],
-    "types": ["node"],
+    "types": ["node", "jasmine"],
     "paths": {
       "@angular-devkit/core": ["./packages/angular_devkit/core/src/index"],
       "@angular-devkit/core/node": ["./packages/angular_devkit/core/node/index"],
@@ -39,7 +42,8 @@
     "plugins": [
       {
         "name": "@bazel/tsetse",
-        "disabledRules": ["must-type-assert-json-parse"]
+        // must-use-promises is handled by the eslint @typescript-eslint/no-floating-promises rule
+        "disabledRules": ["must-type-assert-json-parse", "must-use-promises"]
       }
     ]
   },
@@ -54,12 +58,12 @@
     "goldens/**/*",
     "**/node_modules/**/*",
     "**/third_party/**/*",
-    "packages/angular_devkit/schematics_cli/*/files/**/*",
+    "packages/angular_devkit/schematics_cli/blank/*-files/**/*",
+    "packages/angular_devkit/schematics_cli/schematic/files/**/*",
     "packages/angular_devkit/*/test/**/*",
     "packages/schematics/*/*/*files/**/*",
     "tests/**/*",
     "tools/**/*",
-    "integration/**/*",
     ".ng-dev/**/*"
   ]
 }

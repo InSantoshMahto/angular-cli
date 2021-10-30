@@ -9,10 +9,12 @@
 import { WebpackLoggingCallback } from '@angular-devkit/build-webpack';
 import { logging, tags } from '@angular-devkit/core';
 import * as path from 'path';
-import * as textTable from 'text-table';
+import textTable from 'text-table';
 import { Configuration, StatsCompilation } from 'webpack';
+import { Schema as BrowserBuilderOptions } from '../../builders/browser/schema';
 import { colors as ansiColors, removeColor } from '../../utils/color';
-import { getWebpackStatsConfig } from '../configs/stats';
+import { markAsyncChunksNonInitial } from './async-chunks';
+import { getStatsOptions, normalizeExtraEntryPoints } from './helpers';
 
 export function formatSize(size: number): string {
   if (size <= 0) {
@@ -29,23 +31,17 @@ export function formatSize(size: number): string {
 }
 
 export type BundleStatsData = [files: string, names: string, size: number | string];
-
-export type ChunkType = 'modern' | 'legacy' | 'unknown';
-
 export interface BundleStats {
   initial: boolean;
   stats: BundleStatsData;
-  chunkType: ChunkType;
 }
 
 export function generateBundleStats(info: {
   size?: number;
   files?: string[];
   names?: string[];
-  entry?: boolean;
   initial?: boolean;
   rendered?: boolean;
-  chunkType?: ChunkType;
 }): BundleStats {
   const size = typeof info.size === 'number' ? info.size : '-';
   const files =
@@ -54,11 +50,9 @@ export function generateBundleStats(info: {
       .map((f) => path.basename(f))
       .join(', ') ?? '';
   const names = info.names?.length ? info.names.join(', ') : '-';
-  const initial = !!(info.entry || info.initial);
-  const chunkType = info.chunkType || 'unknown';
+  const initial = !!info.initial;
 
   return {
-    chunkType,
     initial,
     stats: [files, names, size],
   };
@@ -77,11 +71,9 @@ function generateBuildStatsTable(
   const changedEntryChunksStats: BundleStatsData[] = [];
   const changedLazyChunksStats: BundleStatsData[] = [];
 
-  let initialModernTotalSize = 0;
-  let initialLegacyTotalSize = 0;
-  let modernFileSuffix: string | undefined;
+  let initialTotalSize = 0;
 
-  for (const { initial, stats, chunkType } of data) {
+  for (const { initial, stats } of data) {
     const [files, names, size] = stats;
 
     const data: BundleStatsData = [
@@ -92,24 +84,8 @@ function generateBuildStatsTable(
 
     if (initial) {
       changedEntryChunksStats.push(data);
-
       if (typeof size === 'number') {
-        switch (chunkType) {
-          case 'modern':
-            initialModernTotalSize += size;
-            if (!modernFileSuffix) {
-              const match = files.match(/-(es20\d{2}|esnext)/);
-              modernFileSuffix = match?.[1].toString().toUpperCase();
-            }
-            break;
-          case 'legacy':
-            initialLegacyTotalSize += size;
-            break;
-          default:
-            initialModernTotalSize += size;
-            initialLegacyTotalSize += size;
-            break;
-        }
+        initialTotalSize += size;
       }
     } else {
       changedLazyChunksStats.push(data);
@@ -124,14 +100,7 @@ function generateBuildStatsTable(
 
     if (showTotalSize) {
       bundleInfo.push([]);
-      if (initialModernTotalSize === initialLegacyTotalSize) {
-        bundleInfo.push([' ', 'Initial Total', formatSize(initialModernTotalSize)].map(bold));
-      } else {
-        bundleInfo.push(
-          [' ', 'Initial ES5 Total', formatSize(initialLegacyTotalSize)].map(bold),
-          [' ', `Initial ${modernFileSuffix} Total`, formatSize(initialModernTotalSize)].map(bold),
-        );
-      }
+      bundleInfo.push([' ', 'Initial Total', formatSize(initialTotalSize)].map(bold));
     }
   }
 
@@ -158,6 +127,12 @@ function generateBuildStats(hash: string, time: number, colors: boolean): string
   return `Build at: ${w(new Date().toISOString())} - Hash: ${w(hash)} - Time: ${w('' + time)}ms`;
 }
 
+// We use this cache because we can have multiple builders running in the same process,
+// where each builder has different output path.
+
+// Ideally, we should create the logging callback as a factory, but that would need a refactoring.
+const runsCache = new Set<string>();
+
 function statsToString(
   json: StatsCompilation,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -174,8 +149,12 @@ function statsToString(
   const changedChunksStats: BundleStats[] = bundleState ?? [];
   let unchangedChunkNumber = 0;
   if (!bundleState?.length) {
+    const isFirstRun = !runsCache.has(json.outputPath || '');
+
     for (const chunk of json.chunks) {
-      if (!chunk.rendered) {
+      // During first build we want to display unchanged chunks
+      // but unchanged cached chunks are always marked as not rendered.
+      if (!isFirstRun && !chunk.rendered) {
         continue;
       }
 
@@ -186,6 +165,8 @@ function statsToString(
       changedChunksStats.push(generateBundleStats({ ...chunk, size: summedSize }));
     }
     unchangedChunkNumber = json.chunks.length - changedChunksStats.length;
+
+    runsCache.add(json.outputPath || '');
   }
 
   // Sort chunks by size in descending order
@@ -237,14 +218,6 @@ function statsToString(
     );
   }
 }
-
-export const IGNORE_WARNINGS = [
-  // Webpack 5+ has no facility to disable this warning.
-  // System.import is used in @angular/core for deprecated string-form lazy routes
-  /System.import\(\) is deprecated and will be removed soon/i,
-  // https://github.com/webpack-contrib/source-map-loader/blob/b2de4249c7431dd8432da607e08f0f65e9d64219/src/index.js#L83
-  /Failed to parse source map from/,
-];
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function statsWarningsToString(json: StatsCompilation, statsConfig: any): string {
@@ -325,15 +298,27 @@ export function statsHasWarnings(json: StatsCompilation): boolean {
 }
 
 export function createWebpackLoggingCallback(
-  verbose: boolean,
+  options: BrowserBuilderOptions,
   logger: logging.LoggerApi,
 ): WebpackLoggingCallback {
+  const { verbose = false, scripts = [], styles = [] } = options;
+  const extraEntryPoints = [
+    ...normalizeExtraEntryPoints(styles, 'styles'),
+    ...normalizeExtraEntryPoints(scripts, 'scripts'),
+  ];
+
   return (stats, config) => {
     if (verbose) {
       logger.info(stats.toString(config.stats));
     }
 
-    webpackStatsLogger(logger, stats.toJson(getWebpackStatsConfig(false)), config);
+    const rawStats = stats.toJson(getStatsOptions(false));
+    const webpackStats = {
+      ...rawStats,
+      chunks: markAsyncChunksNonInitial(rawStats, extraEntryPoints),
+    };
+
+    webpackStatsLogger(logger, webpackStats, config);
   };
 }
 

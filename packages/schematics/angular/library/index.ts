@@ -25,7 +25,6 @@ import { NodePackageInstallTask } from '@angular-devkit/schematics/tasks';
 import { NodeDependencyType, addPackageJsonDependency } from '../utility/dependencies';
 import { JSONFile } from '../utility/json-file';
 import { latestVersions } from '../utility/latest-versions';
-import { applyLintFix } from '../utility/lint-fix';
 import { relativePathToWorkspaceRoot } from '../utility/paths';
 import { validateProjectName } from '../utility/validation';
 import { getWorkspace, updateWorkspace } from '../utility/workspace';
@@ -61,17 +60,17 @@ function addDependenciesToPackageJson() {
       {
         type: NodeDependencyType.Dev,
         name: 'ng-packagr',
-        version: latestVersions.ngPackagr,
+        version: latestVersions['ng-packagr'],
       },
       {
         type: NodeDependencyType.Default,
         name: 'tslib',
-        version: latestVersions.TsLib,
+        version: latestVersions['tslib'],
       },
       {
         type: NodeDependencyType.Dev,
         name: 'typescript',
-        version: latestVersions.TypeScript,
+        version: latestVersions['typescript'],
       },
     ].forEach((dependency) => addPackageJsonDependency(host, dependency));
 
@@ -162,8 +161,8 @@ export default function (options: LibraryOptions): Rule {
         distRoot,
         relativePathToWorkspaceRoot: relativePathToWorkspaceRoot(projectRoot),
         prefix,
-        angularLatestVersion: latestVersions.Angular.replace('~', '').replace('^', ''),
-        tsLibLatestVersion: latestVersions.TsLib.replace('~', '').replace('^', ''),
+        angularLatestVersion: latestVersions.Angular.replace(/~|\^/, ''),
+        tsLibLatestVersion: latestVersions['tslib'].replace(/~|\^/, ''),
         folderName,
       }),
       move(projectRoot),
@@ -197,7 +196,6 @@ export default function (options: LibraryOptions): Rule {
         path: sourceDir,
         project: projectName,
       }),
-      options.lintFix ? applyLintFix(sourceDir) : noop(),
       (_tree: Tree, context: SchematicContext) => {
         if (!options.skipPackageJson && !options.skipInstall) {
           context.addTask(new NodePackageInstallTask());

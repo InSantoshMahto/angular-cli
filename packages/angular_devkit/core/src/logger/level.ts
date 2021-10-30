@@ -6,23 +6,23 @@
  * found in the LICENSE file at https://angular.io/license
  */
 
-import { JsonObject } from '../json/interface';
+import { JsonObject } from '../json/utils';
 import { LogLevel, Logger } from './logger';
 
 export class LevelTransformLogger extends Logger {
   constructor(
-    public readonly name: string,
-    public readonly parent: Logger | null = null,
+    public override readonly name: string,
+    public override readonly parent: Logger | null = null,
     public readonly levelTransform: (level: LogLevel) => LogLevel,
   ) {
     super(name, parent);
   }
 
-  log(level: LogLevel, message: string, metadata: JsonObject = {}): void {
+  override log(level: LogLevel, message: string, metadata: JsonObject = {}): void {
     return super.log(this.levelTransform(level), message, metadata);
   }
 
-  createChild(name: string): Logger {
+  override createChild(name: string): Logger {
     return new LevelTransformLogger(name, this, this.levelTransform);
   }
 }
@@ -37,8 +37,8 @@ export class LevelCapLogger extends LevelTransformLogger {
   };
 
   constructor(
-    public readonly name: string,
-    public readonly parent: Logger | null = null,
+    public override readonly name: string,
+    public override readonly parent: Logger | null = null,
     public readonly levelCap: LogLevel,
   ) {
     super(name, parent, (level: LogLevel) => {

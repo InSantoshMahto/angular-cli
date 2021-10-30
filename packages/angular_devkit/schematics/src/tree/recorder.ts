@@ -7,17 +7,17 @@
  */
 
 import { ContentHasMutatedException } from '../exception/exception';
-import { UpdateBuffer } from '../utility/update-buffer';
+import { UpdateBufferBase } from '../utility/update-buffer';
 import { FileEntry, UpdateRecorder } from './interface';
 
 export class UpdateRecorderBase implements UpdateRecorder {
   protected _path: string;
   protected _original: Buffer;
-  protected _content: UpdateBuffer;
+  protected _content: UpdateBufferBase;
 
   constructor(entry: FileEntry) {
     this._original = Buffer.from(entry.content);
-    this._content = new UpdateBuffer(entry.content);
+    this._content = UpdateBufferBase.create(entry.content);
     this._path = entry.path;
   }
 
@@ -75,15 +75,15 @@ export class UpdateRecorderBom extends UpdateRecorderBase {
     super(entry);
   }
 
-  insertLeft(index: number, content: Buffer | string) {
+  override insertLeft(index: number, content: Buffer | string) {
     return super.insertLeft(index + this._delta, content);
   }
 
-  insertRight(index: number, content: Buffer | string) {
+  override insertRight(index: number, content: Buffer | string) {
     return super.insertRight(index + this._delta, content);
   }
 
-  remove(index: number, length: number) {
+  override remove(index: number, length: number) {
     return super.remove(index + this._delta, length);
   }
 }

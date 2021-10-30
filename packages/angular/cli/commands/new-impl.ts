@@ -8,13 +8,14 @@
 
 import { Arguments } from '../models/interface';
 import { SchematicCommand } from '../models/schematic-command';
+import { VERSION } from '../models/version';
 import { Schema as NewCommandSchema } from './new';
 
 export class NewCommand extends SchematicCommand<NewCommandSchema> {
-  public readonly allowMissingWorkspace = true;
-  schematicName = 'ng-new';
+  public override readonly allowMissingWorkspace = true;
+  override schematicName = 'ng-new';
 
-  async initialize(options: NewCommandSchema & Arguments) {
+  override async initialize(options: NewCommandSchema & Arguments) {
     this.collectionName = options.collection || (await this.getDefaultSchematicCollection());
 
     return super.initialize(options);
@@ -22,9 +23,7 @@ export class NewCommand extends SchematicCommand<NewCommandSchema> {
 
   public async run(options: NewCommandSchema & Arguments) {
     // Register the version of the CLI in the registry.
-    const packageJson = require('../package.json');
-    const version = packageJson.version;
-
+    const version = VERSION.full;
     this._workflow.registry.addSmartDefaultProvider('ng-cli-version', () => version);
 
     return this.runSchematic({

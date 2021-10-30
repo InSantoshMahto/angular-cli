@@ -4,6 +4,7 @@ load("//tools:defaults.bzl", "ts_library")
 # @external_begin
 load("@bazel_tools//tools/build_defs/pkg:pkg.bzl", "pkg_tar")
 load("@build_bazel_rules_nodejs//:index.bzl", "pkg_npm")
+load("@npm//@angular/dev-infra-private/bazel/api-golden:index.bzl", "api_golden_test_npm_package")
 # @external_end
 
 # Copyright Google Inc. All Rights Reserved.
@@ -18,6 +19,7 @@ licenses(["notice"])
 
 ts_library(
     name = "schematics",
+    package_name = "@angular-devkit/schematics",
     srcs = glob(
         include = ["src/**/*.ts"],
         exclude = [
@@ -40,6 +42,7 @@ ts_library(
         "//packages/angular_devkit/core",
         "//packages/angular_devkit/core/node",  # TODO: get rid of this for 6.0
         "@npm//@types/node",
+        "@npm//magic-string",
         "@npm//rxjs",
     ],
 )
@@ -83,5 +86,16 @@ pkg_tar(
     extension = "tar.gz",
     strip_prefix = "./npm_package",
     tags = ["manual"],
+)
+
+api_golden_test_npm_package(
+    name = "schematics_api",
+    data = [
+        ":npm_package",
+        "//goldens:public-api",
+    ],
+    golden_dir = "angular_cli/goldens/public-api/angular_devkit/schematics",
+    npm_package = "angular_cli/packages/angular_devkit/schematics/npm_package",
+    types = ["@npm//@types/node"],
 )
 # @external_end

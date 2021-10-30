@@ -8,9 +8,10 @@
 
 import * as fs from 'fs';
 import { join } from 'path';
+import { NormalizedCachedOptions } from '../normalize-cache';
 import { NormalizedOptimizationOptions } from '../normalize-optimization';
 import { stripBom } from '../strip-bom';
-import { CrossOriginValue, FileInfo, augmentIndexHtml } from './augment-index-html';
+import { CrossOriginValue, Entrypoint, FileInfo, augmentIndexHtml } from './augment-index-html';
 import { InlineCriticalCssProcessor } from './inline-critical-css';
 import { InlineFontsProcessor } from './inline-fonts';
 
@@ -24,19 +25,17 @@ export interface IndexHtmlGeneratorProcessOptions {
   baseHref: string | undefined;
   outputPath: string;
   files: FileInfo[];
-  noModuleFiles: FileInfo[];
-  moduleFiles: FileInfo[];
 }
 
 export interface IndexHtmlGeneratorOptions {
   indexPath: string;
   deployUrl?: string;
   sri?: boolean;
-  entrypoints: string[];
+  entrypoints: Entrypoint[];
   postTransform?: IndexHtmlTransform;
   crossOrigin?: CrossOriginValue;
   optimization?: NormalizedOptimizationOptions;
-  WOFFSupportNeeded: boolean;
+  cache?: NormalizedCachedOptions;
 }
 
 export type IndexHtmlTransform = (content: string) => Promise<string>;
@@ -105,7 +104,7 @@ function augmentIndexHtmlPlugin(generator: IndexHtmlGenerator): IndexHtmlGenerat
   const { deployUrl, crossOrigin, sri = false, entrypoints } = generator.options;
 
   return async (html, options) => {
-    const { lang, baseHref, outputPath = '', noModuleFiles, files, moduleFiles } = options;
+    const { lang, baseHref, outputPath = '', files } = options;
 
     return augmentIndexHtml({
       html,
@@ -116,8 +115,6 @@ function augmentIndexHtmlPlugin(generator: IndexHtmlGenerator): IndexHtmlGenerat
       lang,
       entrypoints,
       loadOutputFile: (filePath) => generator.readAsset(join(outputPath, filePath)),
-      noModuleFiles,
-      moduleFiles,
       files,
     });
   };
@@ -126,7 +123,6 @@ function augmentIndexHtmlPlugin(generator: IndexHtmlGenerator): IndexHtmlGenerat
 function inlineFontsPlugin({ options }: IndexHtmlGenerator): IndexHtmlGeneratorPlugin {
   const inlineFontsProcessor = new InlineFontsProcessor({
     minify: options.optimization?.styles.minify,
-    WOFFSupportNeeded: options.WOFFSupportNeeded,
   });
 
   return async (html) => inlineFontsProcessor.process(html);

@@ -8,6 +8,7 @@
 
 import { analytics, tags } from '@angular-devkit/core';
 import { NodePackageDoesNotSupportSchematics } from '@angular-devkit/schematics/tools';
+import npa from 'npm-package-arg';
 import { dirname, join } from 'path';
 import { intersects, prerelease, rcompare, satisfies, valid, validRange } from 'semver';
 import { PackageManager } from '../lib/config/workspace-schema';
@@ -28,12 +29,20 @@ import { Spinner } from '../utilities/spinner';
 import { isTTY } from '../utilities/tty';
 import { Schema as AddCommandSchema } from './add';
 
-const npa = require('npm-package-arg');
+/**
+ * The set of packages that should have certain versions excluded from consideration
+ * when attempting to find a compatible version for a package.
+ * The key is a package name and the value is a SemVer range of versions to exclude.
+ */
+const packageVersionExclusions: Record<string, string | undefined> = {
+  // @angular/localize@9.x versions do not have peer dependencies setup
+  '@angular/localize': '9.x',
+};
 
 export class AddCommand extends SchematicCommand<AddCommandSchema> {
-  readonly allowPrivateSchematics = true;
+  override readonly allowPrivateSchematics = true;
 
-  async initialize(options: AddCommandSchema & Arguments) {
+  override async initialize(options: AddCommandSchema & Arguments) {
     if (options.registry) {
       return super.initialize({ ...options, packageRegistry: options.registry });
     } else {
@@ -41,6 +50,7 @@ export class AddCommand extends SchematicCommand<AddCommandSchema> {
     }
   }
 
+  // eslint-disable-next-line max-lines-per-function
   async run(options: AddCommandSchema & Arguments) {
     await ensureCompatibleNpm(this.context.root);
 
@@ -62,21 +72,12 @@ export class AddCommand extends SchematicCommand<AddCommandSchema> {
       return 1;
     }
 
-    if (packageIdentifier.registry && this.isPackageInstalled(packageIdentifier.name)) {
-      let validVersion = false;
-      const installedVersion = await this.findProjectVersion(packageIdentifier.name);
-      if (installedVersion) {
-        if (packageIdentifier.type === 'range') {
-          validVersion = satisfies(installedVersion, packageIdentifier.fetchSpec);
-        } else if (packageIdentifier.type === 'version') {
-          const v1 = valid(packageIdentifier.fetchSpec);
-          const v2 = valid(installedVersion);
-          validVersion = v1 !== null && v1 === v2;
-        } else if (!packageIdentifier.rawSpec) {
-          validVersion = true;
-        }
-      }
-
+    if (
+      packageIdentifier.name &&
+      packageIdentifier.registry &&
+      this.isPackageInstalled(packageIdentifier.name)
+    ) {
+      const validVersion = await this.isProjectVersionValid(packageIdentifier);
       if (validVersion) {
         // Already installed so just run schematic
         this.logger.info('Skipping installation: Package already installed');
@@ -92,7 +93,7 @@ export class AddCommand extends SchematicCommand<AddCommandSchema> {
     const usingYarn = packageManager === PackageManager.Yarn;
     spinner.info(`Using package manager: ${colors.grey(packageManager)}`);
 
-    if (packageIdentifier.type === 'tag' && !packageIdentifier.rawSpec) {
+    if (packageIdentifier.name && packageIdentifier.type === 'tag' && !packageIdentifier.rawSpec) {
       // only package name provided; search for viable version
       // plus special cases for packages that did not have peer deps setup
       spinner.start('Searching for compatible package version...');
@@ -110,7 +111,13 @@ export class AddCommand extends SchematicCommand<AddCommandSchema> {
         return 1;
       }
 
+      // Start with the version tagged as `latest` if it exists
       const latestManifest = packageMetadata.tags['latest'];
+      if (latestManifest) {
+        packageIdentifier = npa.resolve(latestManifest.name, latestManifest.version);
+      }
+
+      // Adjust the version based on name and peer dependencies
       if (latestManifest && Object.keys(latestManifest.peerDependencies).length === 0) {
         if (latestManifest.name === '@angular/pwa') {
           const version = await this.findProjectVersion('@angular/cli');
@@ -123,14 +130,31 @@ export class AddCommand extends SchematicCommand<AddCommandSchema> {
           ) {
             packageIdentifier = npa.resolve('@angular/pwa', '0.12');
           }
-        } else {
-          packageIdentifier = npa.resolve(latestManifest.name, latestManifest.version);
         }
-        spinner.succeed(`Found compatible package version: ${colors.grey(packageIdentifier)}.`);
+
+        spinner.succeed(
+          `Found compatible package version: ${colors.grey(packageIdentifier.toString())}.`,
+        );
       } else if (!latestManifest || (await this.hasMismatchedPeer(latestManifest))) {
         // 'latest' is invalid so search for most recent matching package
+        const versionExclusions = packageVersionExclusions[packageMetadata.name];
         const versionManifests = Object.values(packageMetadata.versions).filter(
-          (value: PackageManifest) => !prerelease(value.version) && !value.deprecated,
+          (value: PackageManifest) => {
+            // Prerelease versions are not stable and should not be considered by default
+            if (prerelease(value.version)) {
+              return false;
+            }
+            // Deprecated versions should not be used or considered
+            if (value.deprecated) {
+              return false;
+            }
+            // Excluded package versions should not be considered
+            if (versionExclusions && satisfies(value.version, versionExclusions)) {
+              return false;
+            }
+
+            return true;
+          },
         );
 
         versionManifests.sort((a, b) => rcompare(a.version, b.version, true));
@@ -138,20 +162,23 @@ export class AddCommand extends SchematicCommand<AddCommandSchema> {
         let newIdentifier;
         for (const versionManifest of versionManifests) {
           if (!(await this.hasMismatchedPeer(versionManifest))) {
-            newIdentifier = npa.resolve(packageIdentifier.name, versionManifest.version);
+            newIdentifier = npa.resolve(versionManifest.name, versionManifest.version);
             break;
           }
         }
 
         if (!newIdentifier) {
-          spinner.warn("Unable to find compatible package.  Using 'latest'.");
+          spinner.warn("Unable to find compatible package.  Using 'latest' tag.");
         } else {
           packageIdentifier = newIdentifier;
-          spinner.succeed(`Found compatible package version: ${colors.grey(packageIdentifier)}.`);
+          spinner.succeed(
+            `Found compatible package version: ${colors.grey(packageIdentifier.toString())}.`,
+          );
         }
       } else {
-        packageIdentifier = npa.resolve(latestManifest.name, latestManifest.version);
-        spinner.succeed(`Found compatible package version: ${colors.grey(packageIdentifier)}.`);
+        spinner.succeed(
+          `Found compatible package version: ${colors.grey(packageIdentifier.toString())}.`,
+        );
       }
     }
 
@@ -160,7 +187,7 @@ export class AddCommand extends SchematicCommand<AddCommandSchema> {
 
     try {
       spinner.start('Loading package information from registry...');
-      const manifest = await fetchPackageManifest(packageIdentifier, this.logger, {
+      const manifest = await fetchPackageManifest(packageIdentifier.toString(), this.logger, {
         registry: options.registry,
         verbose: options.verbose,
         usingYarn,
@@ -189,7 +216,7 @@ export class AddCommand extends SchematicCommand<AddCommandSchema> {
       );
 
       if (!confirmationResponse) {
-        if (!isTTY) {
+        if (!isTTY()) {
           this.logger.error(
             'No terminal detected. ' +
               `'--skip-confirmation' can be used to bypass installation confirmation. ` +
@@ -235,7 +262,29 @@ export class AddCommand extends SchematicCommand<AddCommandSchema> {
     return this.executeSchematic(collectionName, options['--']);
   }
 
-  async reportAnalytics(
+  private async isProjectVersionValid(packageIdentifier: npa.Result): Promise<boolean> {
+    if (!packageIdentifier.name) {
+      return false;
+    }
+
+    let validVersion = false;
+    const installedVersion = await this.findProjectVersion(packageIdentifier.name);
+    if (installedVersion) {
+      if (packageIdentifier.type === 'range' && packageIdentifier.fetchSpec) {
+        validVersion = satisfies(installedVersion, packageIdentifier.fetchSpec);
+      } else if (packageIdentifier.type === 'version') {
+        const v1 = valid(packageIdentifier.fetchSpec);
+        const v2 = valid(installedVersion);
+        validVersion = v1 !== null && v1 === v2;
+      } else if (!packageIdentifier.rawSpec) {
+        validVersion = true;
+      }
+    }
+
+    return validVersion;
+  }
+
+  override async reportAnalytics(
     paths: string[],
     options: AddCommandSchema & Arguments,
     dimensions: (boolean | number | string)[] = [],

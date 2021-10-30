@@ -7,20 +7,15 @@
  */
 
 import * as ts from 'typescript';
-
-const inlineDataLoaderPath = require.resolve('../inline-data-loader');
+import { DirectAngularResourceLoaderPath } from '../loaders/direct-resource';
+import { InlineAngularResourceLoaderPath } from '../loaders/inline-resource';
 
 export function replaceResources(
   shouldTransform: (fileName: string) => boolean,
   getTypeChecker: () => ts.TypeChecker,
   directTemplateLoading = false,
-  inlineStyleMimeType?: string,
   inlineStyleFileExtension?: string,
 ): ts.TransformerFactory<ts.SourceFile> {
-  if (inlineStyleMimeType && !/^text\/[-.\w]+$/.test(inlineStyleMimeType)) {
-    throw new Error('Invalid inline style MIME type.');
-  }
-
   return (context: ts.TransformationContext) => {
     const typeChecker = getTypeChecker();
     const resourceImportDeclarations: ts.ImportDeclaration[] = [];
@@ -38,7 +33,6 @@ export function replaceResources(
                 directTemplateLoading,
                 resourceImportDeclarations,
                 moduleKind,
-                inlineStyleMimeType,
                 inlineStyleFileExtension,
               )
             : node,
@@ -90,7 +84,6 @@ function visitDecorator(
   directTemplateLoading: boolean,
   resourceImportDeclarations: ts.ImportDeclaration[],
   moduleKind?: ts.ModuleKind,
-  inlineStyleMimeType?: string,
   inlineStyleFileExtension?: string,
 ): ts.Decorator {
   if (!isComponentDecorator(node, typeChecker)) {
@@ -121,7 +114,6 @@ function visitDecorator(
           directTemplateLoading,
           resourceImportDeclarations,
           moduleKind,
-          inlineStyleMimeType,
           inlineStyleFileExtension,
         )
       : node,
@@ -155,7 +147,6 @@ function visitComponentMetadata(
   directTemplateLoading: boolean,
   resourceImportDeclarations: ts.ImportDeclaration[],
   moduleKind?: ts.ModuleKind,
-  inlineStyleMimeType?: string,
   inlineStyleFileExtension?: string,
 ): ts.ObjectLiteralElementLike | undefined {
   if (!ts.isPropertyAssignment(node) || ts.isComputedPropertyName(node.name)) {
@@ -168,7 +159,10 @@ function visitComponentMetadata(
       return undefined;
 
     case 'templateUrl':
-      const url = getResourceUrl(node.initializer, directTemplateLoading ? '!raw-loader!' : '');
+      const url = getResourceUrl(
+        node.initializer,
+        directTemplateLoading ? `!${DirectAngularResourceLoaderPath}!` : '',
+      );
       if (!url) {
         return node;
       }
@@ -202,13 +196,12 @@ function visitComponentMetadata(
 
         let url;
         if (isInlineStyle) {
-          if (inlineStyleMimeType) {
-            const data = Buffer.from(node.text).toString('base64');
-            url = `data:${inlineStyleMimeType};charset=utf-8;base64,${data}`;
-          } else if (inlineStyleFileExtension) {
+          if (inlineStyleFileExtension) {
             const data = Buffer.from(node.text).toString('base64');
             const containingFile = node.getSourceFile().fileName;
-            url = `${containingFile}.${inlineStyleFileExtension}!=!${inlineDataLoaderPath}?data=${data}!${containingFile}`;
+            url = `${containingFile}.${inlineStyleFileExtension}!=!${InlineAngularResourceLoaderPath}?data=${encodeURIComponent(
+              data,
+            )}!${containingFile}`;
           } else {
             return nodeFactory.createStringLiteral(node.text);
           }
@@ -336,76 +329,4 @@ function getDecoratorOrigin(
   }
 
   return null;
-}
-
-export function workaroundStylePreprocessing(sourceFile: ts.SourceFile): void {
-  const visitNode: ts.Visitor = (node: ts.Node) => {
-    if (ts.isClassDeclaration(node) && node.decorators?.length) {
-      for (const decorator of node.decorators) {
-        visitDecoratorWorkaround(decorator);
-      }
-    }
-
-    return ts.forEachChild(node, visitNode);
-  };
-
-  ts.forEachChild(sourceFile, visitNode);
-}
-
-function visitDecoratorWorkaround(node: ts.Decorator): void {
-  if (!ts.isCallExpression(node.expression)) {
-    return;
-  }
-
-  const decoratorFactory = node.expression;
-  if (
-    !ts.isIdentifier(decoratorFactory.expression) ||
-    decoratorFactory.expression.text !== 'Component'
-  ) {
-    return;
-  }
-
-  const args = decoratorFactory.arguments;
-  if (args.length !== 1 || !ts.isObjectLiteralExpression(args[0])) {
-    // Unsupported component metadata
-    return;
-  }
-
-  const objectExpression = args[0] as ts.ObjectLiteralExpression;
-
-  // check if a `styles` property is present
-  let hasStyles = false;
-  for (const element of objectExpression.properties) {
-    if (!ts.isPropertyAssignment(element) || ts.isComputedPropertyName(element.name)) {
-      continue;
-    }
-
-    if (element.name.text === 'styles') {
-      hasStyles = true;
-      break;
-    }
-  }
-
-  if (hasStyles) {
-    return;
-  }
-
-  const nodeFactory = ts.factory;
-
-  // add a `styles` property to workaround upstream compiler defect
-  const emptyArray = nodeFactory.createArrayLiteralExpression();
-  const stylePropertyName = nodeFactory.createIdentifier('styles');
-  const styleProperty = nodeFactory.createPropertyAssignment(stylePropertyName, emptyArray);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (stylePropertyName.parent as any) = styleProperty;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (emptyArray.parent as any) = styleProperty;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (styleProperty.parent as any) = objectExpression;
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (objectExpression.properties as any) = nodeFactory.createNodeArray([
-    ...objectExpression.properties,
-    styleProperty,
-  ]);
 }

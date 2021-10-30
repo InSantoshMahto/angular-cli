@@ -7,8 +7,8 @@ load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
 
 http_archive(
     name = "build_bazel_rules_nodejs",
-    sha256 = "4a5d654a4ccd4a4c24eca5d319d85a88a650edf119601550c95bf400c8cc897e",
-    urls = ["https://github.com/bazelbuild/rules_nodejs/releases/download/3.5.1/rules_nodejs-3.5.1.tar.gz"],
+    sha256 = "4501158976b9da216295ac65d872b1be51e3eeb805273e68c516d2eb36ae1fbb",
+    urls = ["https://github.com/bazelbuild/rules_nodejs/releases/download/4.4.1/rules_nodejs-4.4.1.tar.gz"],
 )
 
 # Check the bazel version and download npm dependencies
@@ -31,13 +31,12 @@ check_rules_nodejs_version(minimum_version_string = "2.0.0")
 
 # Setup the Node.js toolchain
 node_repositories(
-    node_version = "14.16.1",
+    node_version = "14.17.1",
     package_json = ["//:package.json"],
 )
 
 yarn_install(
     name = "npm",
     package_json = "//:package.json",
-    strict_visibility = False,  # Needed for ts-api-guardian. More info about this can be found https://github.com/bazelbuild/rules_nodejs/wiki#strict_visibility-on-yarn_install-and-npm_install-now-defaults-true-2199
     yarn_lock = "//:yarn.lock",
 )

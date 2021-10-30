@@ -6,32 +6,28 @@
  * found in the LICENSE file at https://angular.io/license
  */
 
-import * as browserslist from 'browserslist';
+import browserslist from 'browserslist';
 import { feature, features } from 'caniuse-lite';
-import * as ts from 'typescript';
 
 export class BuildBrowserFeatures {
   readonly supportedBrowsers: string[];
 
   constructor(private projectRoot: string) {
+    // By default, browserslist defaults are too inclusive
+    // https://github.com/browserslist/browserslist/blob/83764ea81ffaa39111c204b02c371afa44a4ff07/index.js#L516-L522
+
+    // We change the default query to browsers that Angular support.
+    // https://angular.io/guide/browser-support
+    browserslist.defaults = [
+      'last 1 Chrome version',
+      'last 1 Firefox version',
+      'last 2 Edge major versions',
+      'last 2 Safari major versions',
+      'last 2 iOS major versions',
+      'Firefox ESR',
+    ];
+
     this.supportedBrowsers = browserslist(undefined, { path: this.projectRoot });
-  }
-
-  /**
-   * True, when one or more browsers requires ES5
-   * support and the script target is ES2015 or greater.
-   */
-  isDifferentialLoadingNeeded(scriptTarget: ts.ScriptTarget): boolean {
-    const es6TargetOrLater = scriptTarget > ts.ScriptTarget.ES5;
-
-    return es6TargetOrLater && this.isEs5SupportNeeded();
-  }
-
-  /**
-   * True, when one or more browsers requires ES5 support
-   */
-  isEs5SupportNeeded(): boolean {
-    return !this.isFeatureSupported('es6-module');
   }
 
   /**

@@ -19,7 +19,6 @@ describe('Service Worker Schematic', () => {
   const defaultOptions: ServiceWorkerOptions = {
     project: 'bar',
     target: 'build',
-    configuration: '',
   };
 
   let appTree: UnitTestTree;
@@ -226,7 +225,7 @@ describe('Service Worker Schematic', () => {
     const pkgText = tree.readContent('/projects/bar/ngsw-config.json');
     const config = JSON.parse(pkgText);
     expect(config.assetGroups[1].resources.files).toContain(
-      '/*.(eot|svg|cur|jpg|png|webp|gif|otf|ttf|woff|woff2|ani)',
+      '/*.(svg|cur|jpg|jpeg|png|apng|webp|avif|gif|otf|ttf|woff|woff2)',
     );
   });
 
@@ -240,7 +239,7 @@ describe('Service Worker Schematic', () => {
     const pkgText = tree.readContent('/projects/bar/ngsw-config.json');
     const ngswConfig = JSON.parse(pkgText);
     expect(ngswConfig.assetGroups[1].resources.files).toContain(
-      '/outDir/*.(eot|svg|cur|jpg|png|webp|gif|otf|ttf|woff|woff2|ani)',
+      '/outDir/*.(svg|cur|jpg|jpeg|png|apng|webp|avif|gif|otf|ttf|woff|woff2)',
     );
   });
 

@@ -9,7 +9,7 @@
 import { JsonObject, logging } from '@angular-devkit/core';
 import * as child_process from 'child_process';
 import * as fs from 'fs';
-import * as glob from 'glob';
+import glob from 'glob';
 import * as path from 'path';
 import { packages } from '../lib/packages';
 import buildSchema from './build-schema';
@@ -121,10 +121,31 @@ function _rm(p: string) {
   fs.unlinkSync(p);
 }
 
+function rimraf(location: string) {
+  // The below should be removed and replace with just `rmSync` when support for Node.Js 12 is removed.
+  const { rmSync, rmdirSync } = fs as typeof fs & {
+    rmSync?: (
+      path: fs.PathLike,
+      options?: {
+        force?: boolean;
+        maxRetries?: number;
+        recursive?: boolean;
+        retryDelay?: number;
+      },
+    ) => void;
+  };
+
+  if (rmSync) {
+    rmSync(location, { force: true, recursive: true, maxRetries: 3 });
+  } else {
+    rmdirSync(location, { recursive: true, maxRetries: 3 });
+  }
+}
+
 function _clean(logger: logging.Logger) {
   logger.info('Cleaning...');
   logger.info('  Removing dist/...');
-  fs.rmdirSync(path.join(__dirname, '../dist'), { recursive: true, maxRetries: 3 });
+  rimraf(path.join(__dirname, '../dist'));
 }
 
 function _sortPackages() {
@@ -173,7 +194,7 @@ function _exec(command: string, args: string[], opts: { cwd?: string }, logger: 
 
 function _build(logger: logging.Logger) {
   logger.info('Building...');
-  _exec('node', [require.resolve('typescript/bin/tsc'), '-p', 'tsconfig.json'], {}, logger);
+  _exec('node', [require.resolve('typescript/bin/tsc'), '-p', 'tsconfig-build.json'], {}, logger);
 }
 
 export default async function (
@@ -192,19 +213,19 @@ export default async function (
     packageLogger.info(packageName);
     const pkg = packages[packageName];
     _recursiveCopy(pkg.build, pkg.dist, logger);
-    fs.rmdirSync(pkg.build, { recursive: true, maxRetries: 3 });
+    rimraf(pkg.build);
   }
 
   logger.info('Merging bazel-bin/ with dist/');
   for (const packageName of sortedPackages) {
     const pkg = packages[packageName];
-    const bazelBinPath = pkg.build.replace(/([\\\/]dist[\\\/])(packages)/, (_, dist, packages) => {
+    const bazelBinPath = pkg.build.replace(/([\\/]dist[\\/])(packages)/, (_, dist, packages) => {
       return path.join(dist, 'dist-schema', packages);
     });
     if (fs.existsSync(bazelBinPath)) {
       packageLogger.info(packageName);
       _recursiveCopy(bazelBinPath, pkg.dist, logger);
-      fs.rmdirSync(bazelBinPath, { recursive: true, maxRetries: 3 });
+      rimraf(bazelBinPath);
     }
   }
 
@@ -214,70 +235,74 @@ export default async function (
     resourceLogger.info(packageName);
     const pkg = packages[packageName];
     const pkgJson = pkg.packageJson;
-    const files = glob.sync(path.join(pkg.root, '**/*'), { dot: true, nodir: true });
+    const files = glob.sync('**/*', {
+      cwd: pkg.root,
+      dot: true,
+      nodir: true,
+      ignore: ['test/**/*', '**/tests/*', 'src/testing/*'],
+    });
     const subSubLogger = resourceLogger.createChild(packageName);
     subSubLogger.info(`${files.length} files total...`);
-    const resources = files
-      .map((fileName) => path.relative(pkg.root, fileName))
-      .filter((fileName) => {
-        if (/(?:^|[\/\\])node_modules[\/\\]/.test(fileName)) {
-          return false;
-        }
+    const resources = files.filter((fileName) => {
+      if (/(?:^|[/\\])node_modules[/\\]/.test(fileName)) {
+        return false;
+      }
 
-        // Schematics template files.
-        if (
-          pkgJson['schematics'] &&
-          (fileName.match(/(\/|\\)files(\/|\\)/) || fileName.match(/(\/|\\)\w+-files(\/|\\)/))
-        ) {
-          return true;
-        }
-
-        if (fileName.endsWith('package.json')) {
-          return true;
-        }
-
-        // Ignore in package test files.
-        if (fileName.startsWith('test/') || fileName.startsWith('test\\')) {
-          return false;
-        }
-        if (pkg.name === '@angular-devkit/core' && fileName.startsWith('src/workspace/json/test')) {
-          return false;
-        }
-
-        // This schema is built and copied later on as schema.json.
-        if (pkg.name === '@angular/cli' && fileName.endsWith('workspace-schema.json')) {
-          return false;
-        }
-
-        // Remove Bazel files from NPM.
-        if (fileName === 'BUILD' || fileName === 'BUILD.bazel') {
-          return false;
-        }
-
-        // Skip sources.
-        if (fileName.endsWith('.ts') && !fileName.endsWith('.d.ts')) {
-          // Verify that it was actually built.
-          if (!fs.existsSync(path.join(pkg.dist, fileName).replace(/ts$/, 'js'))) {
-            subSubLogger.error(`\nSource found but compiled file not found: "${fileName}".`);
-            process.exit(2);
-          }
-
-          // Skip all sources.
-          return false;
-        }
-
-        // Skip tsconfig only.
-        if (fileName.endsWith('tsconfig.json')) {
-          return false;
-        }
-
-        // Skip files from gitignore.
-        if (_gitIgnoreMatch(fileName)) {
-          return false;
-        }
-
+      // Schematics template files.
+      if (
+        pkgJson['schematics'] &&
+        (fileName.match(/(\/|\\)files(\/|\\)/) || fileName.match(/(\/|\\)\w+-files(\/|\\)/))
+      ) {
         return true;
-      });
+      }
+
+      // Skip test files
+      if (fileName.endsWith('_spec.ts')) {
+        return false;
+      }
+
+      if (fileName.endsWith('package.json')) {
+        return true;
+      }
+
+      if (pkg.name === '@angular-devkit/core' && fileName.startsWith('src/workspace/json/test')) {
+        return false;
+      }
+
+      // This schema is built and copied later on as schema.json.
+      if (pkg.name === '@angular/cli' && fileName.endsWith('workspace-schema.json')) {
+        return false;
+      }
+
+      // Remove Bazel files from NPM.
+      if (fileName === 'BUILD' || fileName === 'BUILD.bazel') {
+        return false;
+      }
+
+      // Skip sources.
+      if (fileName.endsWith('.ts') && !fileName.endsWith('.d.ts')) {
+        // Verify that it was actually built.
+        if (!fs.existsSync(path.join(pkg.dist, fileName).replace(/ts$/, 'js'))) {
+          subSubLogger.error(`\nSource found but compiled file not found: "${fileName}".`);
+          process.exit(2);
+        }
+
+        // Skip all sources.
+        return false;
+      }
+
+      // Skip tsconfig only.
+      if (fileName.endsWith('tsconfig.json')) {
+        return false;
+      }
+
+      // Skip files from gitignore.
+      if (_gitIgnoreMatch(fileName)) {
+        return false;
+      }
+
+      return true;
+    });
 
     subSubLogger.info(`${resources.length} resources...`);
     resources.forEach((fileName) => {
@@ -404,7 +429,7 @@ export default async function (
     if (!pkg.private) {
       tarLogger.info(`${pkgName} => ${pkg.tar}`);
       _tar(pkg.tar, pkg.dist);
-      output.push({ name: pkgName, outputPath: pkg.tar });
+      output.push({ name: pkgName, outputPath: pkg.dist });
     }
   });
 

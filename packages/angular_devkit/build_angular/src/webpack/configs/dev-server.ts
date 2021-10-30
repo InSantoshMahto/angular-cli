@@ -7,61 +7,36 @@
  */
 
 import { logging, tags } from '@angular-devkit/core';
-import { existsSync, readFileSync } from 'fs';
+import { existsSync } from 'fs';
 import { posix, resolve } from 'path';
 import * as url from 'url';
-import * as webpack from 'webpack';
-import { Configuration } from 'webpack-dev-server';
-import { normalizeOptimization } from '../../utils';
+import { Configuration, RuleSetRule } from 'webpack';
+import { Configuration as DevServerConfiguration } from 'webpack-dev-server';
 import { WebpackConfigOptions, WebpackDevServerOptions } from '../../utils/build-options';
+import { loadEsmModule } from '../../utils/load-esm';
 import { getIndexOutputFile } from '../../utils/webpack-browser-config';
 import { HmrLoader } from '../plugins/hmr/hmr-loader';
-import { getWatchOptions } from '../utils/helpers';
 
-export function getDevServerConfig(
+export async function getDevServerConfig(
   wco: WebpackConfigOptions<WebpackDevServerOptions>,
-): webpack.Configuration {
+): Promise<Configuration> {
   const {
-    buildOptions: {
-      optimization,
-      host,
-      port,
-      index,
-      headers,
-      poll,
-      ssl,
-      hmr,
-      main,
-      disableHostCheck,
-      liveReload,
-      allowedHosts,
-      watch,
-      proxyConfig,
-    },
+    buildOptions: { host, port, index, headers, watch, hmr, main, liveReload, proxyConfig },
     logger,
     root,
   } = wco;
 
   const servePath = buildServePath(wco.buildOptions, logger);
-  const { styles: stylesOptimization, scripts: scriptsOptimization } = normalizeOptimization(
-    optimization,
-  );
 
-  const extraPlugins = [];
-
-  // Resolve public host and client address.
-  let publicHost = wco.buildOptions.publicHost;
-  if (publicHost) {
-    if (!/^\w+:\/\//.test(publicHost)) {
-      publicHost = `${ssl ? 'https' : 'http'}://${publicHost}`;
-    }
-
-    const parsedHost = url.parse(publicHost);
-    publicHost = parsedHost.host ?? undefined;
-  } else {
-    publicHost = '0.0.0.0:0';
+  const extraRules: RuleSetRule[] = [];
+  if (hmr) {
+    extraRules.push({
+      loader: HmrLoader,
+      include: [main].map((p) => resolve(wco.root, p)),
+    });
   }
 
+  const extraPlugins = [];
   if (!watch) {
     // There's no option to turn off file watching in webpack-dev-server, but
     // we can override the file watcher instead.
@@ -76,13 +51,7 @@ export function getDevServerConfig(
     });
   }
 
-  const extraRules: webpack.RuleSetRule[] = [];
-  if (hmr) {
-    extraRules.push({
-      loader: HmrLoader,
-      include: [main].map((p) => resolve(wco.root, p)),
-    });
-  }
+  const webSocketPath = posix.join(servePath, 'ws');
 
   return {
     plugins: extraPlugins,
@@ -97,7 +66,7 @@ export function getDevServerConfig(
         ...headers,
       },
       historyApiFallback: !!index && {
-        index: `${servePath}/${getIndexOutputFile(index)}`,
+        index: posix.join(servePath, getIndexOutputFile(index)),
         disableDotRule: true,
         htmlAcceptHeaders: ['text/html', 'application/xhtml+xml'],
         rewrites: [
@@ -107,30 +76,31 @@ export function getDevServerConfig(
           },
         ],
       },
-      sockPath: posix.join(servePath, 'sockjs-node'),
-      stats: false,
-      compress: stylesOptimization.minify || scriptsOptimization,
-      watchOptions: getWatchOptions(poll),
-      https: getSslConfig(root, wco.buildOptions),
-      overlay: {
-        errors: !(stylesOptimization.minify || scriptsOptimization),
-        warnings: false,
+      webSocketServer: {
+        options: {
+          path: webSocketPath,
+        },
       },
-      public: publicHost,
-      allowedHosts,
-      disableHostCheck,
-      // This should always be true, but at the moment this breaks 'SuppressExtractedTextChunksWebpackPlugin'
-      // because it will include addition JS in the styles.js.
-      inline: hmr,
-      publicPath: servePath,
+      compress: false,
+      static: false,
+      https: getSslConfig(root, wco.buildOptions),
+      allowedHosts: getAllowedHostsConfig(wco.buildOptions),
+      devMiddleware: {
+        publicPath: servePath,
+        stats: false,
+      },
       liveReload,
-      injectClient: liveReload,
-      hotOnly: hmr && !liveReload,
-      hot: hmr,
-      proxy: addProxyConfig(root, proxyConfig),
-      contentBase: false,
-      logLevel: 'error',
-    } as Configuration & { logLevel: Configuration['clientLogLevel'] },
+      hot: hmr && !liveReload ? 'only' : hmr,
+      proxy: await addProxyConfig(root, proxyConfig),
+      client: {
+        logging: 'info',
+        webSocketURL: getPublicHostOptions(wco.buildOptions, webSocketPath),
+        overlay: {
+          errors: true,
+          warnings: false,
+        },
+      },
+    },
   };
 }
 
@@ -169,12 +139,15 @@ export function buildServePath(
  * Private method to enhance a webpack config with SSL configuration.
  * @private
  */
-function getSslConfig(root: string, options: WebpackDevServerOptions) {
+function getSslConfig(
+  root: string,
+  options: WebpackDevServerOptions,
+): DevServerConfiguration['https'] {
   const { ssl, sslCert, sslKey } = options;
   if (ssl && sslCert && sslKey) {
     return {
-      key: readFileSync(resolve(root, sslKey), 'utf-8'),
-      cert: readFileSync(resolve(root, sslCert), 'utf-8'),
+      key: resolve(root, sslKey),
+      cert: resolve(root, sslCert),
     };
   }
 
@@ -185,14 +158,25 @@ function getSslConfig(root: string, options: WebpackDevServerOptions) {
  * Private method to enhance a webpack config with Proxy configuration.
  * @private
  */
-function addProxyConfig(root: string, proxyConfig: string | undefined) {
+async function addProxyConfig(root: string, proxyConfig: string | undefined) {
   if (!proxyConfig) {
     return undefined;
   }
 
   const proxyPath = resolve(root, proxyConfig);
   if (existsSync(proxyPath)) {
-    return require(proxyPath);
+    try {
+      return require(proxyPath);
+    } catch (e) {
+      if (e.code === 'ERR_REQUIRE_ESM') {
+        // Load the ESM configuration file using the TypeScript dynamic import workaround.
+        // Once TypeScript provides support for keeping the dynamic import this workaround can be
+        // changed to a direct dynamic import.
+        return (await loadEsmModule<{ default: unknown }>(url.pathToFileURL(proxyPath))).default;
+      }
+
+      throw e;
+    }
   }
 
   throw new Error('Proxy config file ' + proxyPath + ' does not exist.');
@@ -234,4 +218,29 @@ function findDefaultServePath(baseHref?: string, deployUrl?: string): string | n
 
   // Join together baseHref and deployUrl
   return `${normalizedBaseHref}${deployUrl || ''}`;
+}
+
+function getAllowedHostsConfig(
+  options: WebpackDevServerOptions,
+): DevServerConfiguration['allowedHosts'] {
+  if (options.disableHostCheck) {
+    return 'all';
+  } else if (options.allowedHosts?.length) {
+    return options.allowedHosts;
+  }
+
+  return undefined;
+}
+
+function getPublicHostOptions(options: WebpackDevServerOptions, webSocketPath: string): string {
+  let publicHost: string | null | undefined = options.publicHost;
+  if (publicHost) {
+    if (!/^\w+:\/\//.test(publicHost)) {
+      publicHost = `https://${publicHost}`;
+    }
+
+    publicHost = url.parse(publicHost).host;
+  }
+
+  return `auto://${publicHost || '0.0.0.0:0'}${webSocketPath}`;
 }

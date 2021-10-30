@@ -1,29 +1,21 @@
 import * as fs from 'fs';
-import { expectFileToExist, replaceInFile } from '../../utils/fs';
+import { expectFileToExist } from '../../utils/fs';
 import { ng } from '../../utils/process';
 
 export default async function () {
-  // Enable Differential loading to run both size checks
-  await replaceInFile(
-    '.browserslistrc',
-    'not IE 11',
-    'IE 11',
-  );
-
   // The below is needed to cache bundles and verify that sourcemaps are generated
   // corretly when output-hashing is disabled.
   await ng('build', '--output-hashing=bundles', '--source-map', '--configuration=development');
 
   await ng('build', '--output-hashing=none', '--source-map');
-  await testForSourceMaps(6);
+  await testForSourceMaps(3);
 
   await ng('build', '--output-hashing=none', '--source-map', '--configuration=development');
-  await testForSourceMaps(8);
+  await testForSourceMaps(4);
 }
 
-async function testForSourceMaps(expectedNumberOfFiles: number): Promise <void> {
-  await expectFileToExist('dist/test-project/main-es5.js.map');
-  await expectFileToExist('dist/test-project/main-es2017.js.map');
+async function testForSourceMaps(expectedNumberOfFiles: number): Promise<void> {
+  await expectFileToExist('dist/test-project/main.js.map');
 
   const files = fs.readdirSync('./dist/test-project');
 
@@ -48,6 +40,8 @@ async function testForSourceMaps(expectedNumberOfFiles: number): Promise <void> 
   }
 
   if (count < expectedNumberOfFiles) {
-    throw new Error(`Javascript file count is low. Expected ${expectedNumberOfFiles} but found ${count}`);
+    throw new Error(
+      `Javascript file count is low. Expected ${expectedNumberOfFiles} but found ${count}`,
+    );
   }
 }

@@ -16,42 +16,51 @@ import {
 } from 'rxjs';
 import { concatMap, reduce } from 'rxjs/operators';
 import { CreateFileAction } from '../tree/action';
-import { UpdateBuffer } from '../utility/update-buffer';
+import { UpdateBufferBase } from '../utility/update-buffer';
 import { SimpleSinkBase } from './sink';
 
 export class HostSink extends SimpleSinkBase {
   protected _filesToDelete = new Set<Path>();
   protected _filesToRename = new Set<[Path, Path]>();
-  protected _filesToCreate = new Map<Path, UpdateBuffer>();
-  protected _filesToUpdate = new Map<Path, UpdateBuffer>();
+  protected _filesToCreate = new Map<Path, UpdateBufferBase>();
+  protected _filesToUpdate = new Map<Path, UpdateBufferBase>();
 
   constructor(protected _host: virtualFs.Host, protected _force = false) {
     super();
   }
 
-  protected _validateCreateAction(action: CreateFileAction): Observable<void> {
+  protected override _validateCreateAction(action: CreateFileAction): Observable<void> {
     return this._force ? EMPTY : super._validateCreateAction(action);
   }
 
   protected _validateFileExists(p: Path): Observable<boolean> {
     if (this._filesToCreate.has(p) || this._filesToUpdate.has(p)) {
       return observableOf(true);
-    } else if (this._filesToDelete.has(p)) {
-      return observableOf(false);
-    } else if ([...this._filesToRename.values()].some(([from]) => from == p)) {
-      return observableOf(false);
-    } else {
-      return this._host.exists(p);
     }
+
+    if (this._filesToDelete.has(p)) {
+      return observableOf(false);
+    }
+
+    for (const [from, to] of this._filesToRename.values()) {
+      switch (p) {
+        case from:
+          return observableOf(false);
+        case to:
+          return observableOf(true);
+      }
+    }
+
+    return this._host.exists(p);
   }
 
   protected _overwriteFile(path: Path, content: Buffer): Observable<void> {
-    this._filesToUpdate.set(path, new UpdateBuffer(content));
+    this._filesToUpdate.set(path, UpdateBufferBase.create(content));
 
     return EMPTY;
   }
   protected _createFile(path: Path, content: Buffer): Observable<void> {
-    this._filesToCreate.set(path, new UpdateBuffer(content));
+    this._filesToCreate.set(path, UpdateBufferBase.create(content));
 
     return EMPTY;
   }
@@ -82,12 +91,12 @@ export class HostSink extends SimpleSinkBase {
       ),
       observableFrom([...this._filesToCreate.entries()]).pipe(
         concatMap(([path, buffer]) => {
-          return this._host.write(path, (buffer.generate() as {}) as virtualFs.FileBuffer);
+          return this._host.write(path, buffer.generate() as {} as virtualFs.FileBuffer);
         }),
       ),
       observableFrom([...this._filesToUpdate.entries()]).pipe(
         concatMap(([path, buffer]) => {
-          return this._host.write(path, (buffer.generate() as {}) as virtualFs.FileBuffer);
+          return this._host.write(path, buffer.generate() as {} as virtualFs.FileBuffer);
         }),
       ),
     ).pipe(reduce(() => {}));

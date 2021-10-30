@@ -6,15 +6,18 @@
  * found in the LICENSE file at https://angular.io/license
  */
 
-import { LogLevel, Logger, process as mainNgcc } from '@angular/compiler-cli/ngcc';
+import type { LogLevel, Logger } from '@angular/compiler-cli/ngcc';
 import { spawnSync } from 'child_process';
 import { createHash } from 'crypto';
-import { Resolver, ResolverFactory } from 'enhanced-resolve';
 import { accessSync, constants, existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import * as path from 'path';
 import * as ts from 'typescript';
+import type { Compiler } from 'webpack';
 import { time, timeEnd } from './benchmark';
 import { InputFileSystem } from './ivy/system';
+
+// Extract Resolver type from Webpack types since it is not directly exported
+type ResolverWithOptions = ReturnType<Compiler['resolverFactory']['get']>;
 
 // We cannot create a plugin for this, because NGTSC requires addition type
 // information which ngcc creates when processing a package which was compiled with NGC.
@@ -30,28 +33,23 @@ export class NgccProcessor {
   private _processedModules = new Set<string>();
   private _logger: NgccLogger;
   private _nodeModulesDirectory: string;
-  private _resolver: Resolver;
 
   constructor(
+    private readonly compilerNgcc: typeof import('@angular/compiler-cli/ngcc'),
     private readonly propertiesToConsider: string[],
     private readonly compilationWarnings: (Error | string)[],
     private readonly compilationErrors: (Error | string)[],
     private readonly basePath: string,
     private readonly tsConfigPath: string,
     private readonly inputFileSystem: InputFileSystem,
-    private readonly symlinks: boolean | undefined,
+    private readonly resolver: ResolverWithOptions,
   ) {
-    this._logger = new NgccLogger(this.compilationWarnings, this.compilationErrors);
+    this._logger = new NgccLogger(
+      this.compilationWarnings,
+      this.compilationErrors,
+      compilerNgcc.LogLevel.info,
+    );
     this._nodeModulesDirectory = this.findNodeModulesDirectory(this.basePath);
-
-    this._resolver = ResolverFactory.createResolver({
-      // NOTE: @types/webpack InputFileSystem is missing some methods
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      fileSystem: this.inputFileSystem as any,
-      extensions: ['.json'],
-      useSyncFileSystemCalls: true,
-      symlinks,
-    });
   }
 
   /** Process the entire node modules tree. */
@@ -122,6 +120,14 @@ export class NgccProcessor {
     const timeLabel = 'NgccProcessor.process';
     time(timeLabel);
 
+    // Temporary workaround during transition to ESM-only @angular/compiler-cli
+    // TODO_ESM: This workaround should be removed prior to the final release of v13
+    //       and replaced with only `this.compilerNgcc.ngccMainFilePath`.
+    const ngccExecutablePath =
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (this.compilerNgcc as any).ngccMainFilePath ??
+      require.resolve('@angular/compiler-cli/ngcc/main-ngcc.js');
+
     // We spawn instead of using the API because:
     // - NGCC Async uses clustering which is problematic when used via the API which means
     // that we cannot setup multiple cluster masters with different options.
@@ -130,7 +136,7 @@ export class NgccProcessor {
     const { status, error } = spawnSync(
       process.execPath,
       [
-        require.resolve('@angular/compiler-cli/ngcc/main-ngcc.js'),
+        ngccExecutablePath,
         '--source' /** basePath */,
         this._nodeModulesDirectory,
         '--properties' /** propertiesToConsider */,
@@ -194,7 +200,7 @@ export class NgccProcessor {
 
     const timeLabel = `NgccProcessor.processModule.ngcc.process+${moduleName}`;
     time(timeLabel);
-    mainNgcc({
+    this.compilerNgcc.process({
       basePath: this._nodeModulesDirectory,
       targetEntryPointPath: path.dirname(packageJsonPath),
       propertiesToConsider: this.propertiesToConsider,
@@ -207,10 +213,7 @@ export class NgccProcessor {
 
     // Purge this file from cache, since NGCC add new mainFields. Ex: module_ivy_ngcc
     // which are unknown in the cached file.
-    if (this.inputFileSystem.purge) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (this.inputFileSystem.purge as any)(packageJsonPath);
-    }
+    this.inputFileSystem.purge?.(packageJsonPath);
 
     this._processedModules.add(resolvedFileName);
   }
@@ -224,7 +227,7 @@ export class NgccProcessor {
    */
   private tryResolvePackage(moduleName: string, resolvedFileName: string): string | undefined {
     try {
-      const resolvedPath = this._resolver.resolveSync(
+      const resolvedPath = this.resolver.resolveSync(
         {},
         resolvedFileName,
         `${moduleName}/package.json`,
@@ -256,11 +259,10 @@ export class NgccProcessor {
 }
 
 class NgccLogger implements Logger {
-  level = LogLevel.info;
-
   constructor(
     private readonly compilationWarnings: (Error | string)[],
     private readonly compilationErrors: (Error | string)[],
+    public level: LogLevel,
   ) {}
 
   // eslint-disable-next-line @typescript-eslint/no-empty-function

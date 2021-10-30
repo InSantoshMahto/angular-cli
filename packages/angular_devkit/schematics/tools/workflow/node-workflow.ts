@@ -69,7 +69,6 @@ export class NodeWorkflow extends workflow.BaseWorkflow {
       rootDirectory: root && getSystemPath(root),
     });
     engineHost.registerTaskExecutor(BuiltinTaskExecutor.RunSchematic);
-    engineHost.registerTaskExecutor(BuiltinTaskExecutor.TslintFix);
 
     if (options.optionTransforms) {
       for (const transform of options.optionTransforms) {
@@ -84,10 +83,10 @@ export class NodeWorkflow extends workflow.BaseWorkflow {
     this._context = [];
   }
 
-  get engine(): FileSystemEngine {
+  override get engine(): FileSystemEngine {
     return this._engine as FileSystemEngine;
   }
-  get engineHost(): NodeModulesEngineHost {
+  override get engineHost(): NodeModulesEngineHost {
     return this._engineHost as NodeModulesEngineHost;
   }
 }

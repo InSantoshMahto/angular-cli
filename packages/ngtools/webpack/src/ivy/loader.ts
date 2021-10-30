@@ -7,23 +7,19 @@
  */
 
 import * as path from 'path';
+import type { LoaderContext } from 'webpack';
 import { AngularPluginSymbol, FileEmitterCollection } from './symbol';
 
-export function angularWebpackLoader(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  this: any,
-  content: string,
-  // Source map types are broken in the webpack type definitions
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  map: any,
-) {
+export function angularWebpackLoader(this: LoaderContext<unknown>, content: string, map: string) {
   const callback = this.async();
   if (!callback) {
     throw new Error('Invalid webpack version');
   }
 
-  const fileEmitter = this._compilation[AngularPluginSymbol] as FileEmitterCollection;
-  if (typeof fileEmitter !== 'object') {
+  const fileEmitter = (
+    this as LoaderContext<unknown> & { [AngularPluginSymbol]?: FileEmitterCollection }
+  )[AngularPluginSymbol];
+  if (!fileEmitter || typeof fileEmitter !== 'object') {
     if (this.resourcePath.endsWith('.js')) {
       // Passthrough for JS files when no plugin is used
       this.callback(undefined, content, map);

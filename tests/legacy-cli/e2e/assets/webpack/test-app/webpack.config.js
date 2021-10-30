@@ -3,25 +3,27 @@ const path = require('path');
 
 module.exports = {
   resolve: {
-    extensions: ['.ts', '.js']
+    extensions: ['.ts', '.js'],
   },
   entry: './app/main.ts',
   output: {
     path: path.resolve('./dist'),
     publicPath: 'dist/',
-    filename: 'app.main.js'
+    filename: 'app.main.js',
   },
-  plugins: [
-    new ngToolsWebpack.ivy.AngularWebpackPlugin(),
-  ],
+  plugins: [new ngToolsWebpack.AngularWebpackPlugin()],
   module: {
     rules: [
-      { test: /\.scss$/, use: ['raw-loader', 'sass-loader'] },
-      { test: /\.html$/, loader: 'raw-loader' },
-      { test: /\.ts$/, loader: ngToolsWebpack.ivy.AngularWebpackLoaderPath }
-    ]
+      // rxjs 6 requires directory imports which are not support in ES modules.
+      // Disabling `fullySpecified` allows Webpack to ignore this but this is
+      // not ideal because it currently disables ESM behavior import for all JS files.
+      { test: /\.[m]?js$/, resolve: { fullySpecified: false } },
+      { test: /\.scss$/, use: ['sass-loader'], type: 'asset/source' },
+      { test: /\.html$/, type: 'asset/source' },
+      { test: /\.ts$/, loader: ngToolsWebpack.AngularWebpackLoaderPath },
+    ],
   },
   devServer: {
-    historyApiFallback: true
-  }
+    historyApiFallback: true,
+  },
 };
