@@ -51,14 +51,13 @@ Note: There's a limit of 20 custom dimensions.
 | 5 | `Flag: --style` | `string` |
 | 6 | `--collection` | `string` |
 | 7 | `Flag: --strict` | `boolean` |
-| 8 | `Ivy Enabled` | `boolean` |
+| 8 | `AOT Enabled` | `boolean` |
 | 9 | `Flag: --inline-style` | `boolean` |
 | 10 | `Flag: --inline-template` | `boolean` |
 | 11 | `Flag: --view-encapsulation` | `string` |
 | 12 | `Flag: --skip-tests` | `boolean` |
 | 13 | `Flag: --aot` | `boolean` |
 | 14 | `Flag: --minimal` | `boolean` |
-| 15 | `Flag: --lint-fix` | `boolean` |
 | 16 | `Flag: --optimization` | `boolean` |
 | 17 | `Flag: --routing` | `boolean` |
 | 18 | `Flag: --skip-import` | `boolean` |

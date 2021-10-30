@@ -10,7 +10,7 @@ import { BuilderContext, BuilderOutput, createBuilder } from '@angular-devkit/ar
 import { resolve as pathResolve } from 'path';
 import { Observable, from, isObservable, of } from 'rxjs';
 import { switchMap } from 'rxjs/operators';
-import * as webpack from 'webpack';
+import webpack from 'webpack';
 import { EmittedFiles, getEmittedFiles } from '../utils';
 import { Schema as RealWebpackBuilderSchema } from './schema';
 
@@ -72,16 +72,20 @@ export function runWebpack(
             log(stats, config);
 
             const statsOptions = typeof config.stats === 'boolean' ? undefined : config.stats;
-
-            obs.next({
+            const result = {
               success: !stats.hasErrors(),
               webpackStats: shouldProvideStats ? stats.toJson(statsOptions) : undefined,
               emittedFiles: getEmittedFiles(stats.compilation),
               outputPath: stats.compilation.outputOptions.path,
-            } as unknown as BuildResult);
+            } as unknown as BuildResult;
 
-            if (!config.watch) {
-              webpackCompiler.close(() => obs.complete());
+            if (config.watch) {
+              obs.next(result);
+            } else {
+              webpackCompiler.close(() => {
+                obs.next(result);
+                obs.complete();
+              });
             }
           };
 
@@ -115,6 +119,8 @@ export default createBuilder<WebpackBuilderSchema>((options, context) => {
   const configPath = pathResolve(context.workspaceRoot, options.webpackConfig);
 
   return from(import(configPath)).pipe(
-    switchMap((config: webpack.Configuration) => runWebpack(config, context)),
+    switchMap(({ default: config }: { default: webpack.Configuration }) =>
+      runWebpack(config, context),
+    ),
   );
 });

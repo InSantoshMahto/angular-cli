@@ -124,7 +124,7 @@ describe('Application Schematic', () => {
       .toPromise();
     const path = '/projects/foo/src/app/app.module.ts';
     const content = tree.readContent(path);
-    expect(content).toMatch(/import { BrowserModule } from \'@angular\/platform-browser\';/);
+    expect(content).toMatch(/import { BrowserModule } from '@angular\/platform-browser';/);
   });
 
   it('should declare app component in the app module', async () => {
@@ -133,7 +133,7 @@ describe('Application Schematic', () => {
       .toPromise();
     const path = '/projects/foo/src/app/app.module.ts';
     const content = tree.readContent(path);
-    expect(content).toMatch(/import { AppComponent } from \'\.\/app\.component\';/);
+    expect(content).toMatch(/import { AppComponent } from '\.\/app\.component';/);
   });
 
   it(`should set 'defaultEncapsulation' in main.ts when 'ViewEncapsulation' is provided`, async () => {
@@ -341,7 +341,7 @@ describe('Application Schematic', () => {
         .toPromise();
       const pkg = JSON.parse(tree.readContent('/package.json'));
       expect(pkg.devDependencies['@angular/compiler-cli']).toEqual(latestVersions.Angular);
-      expect(pkg.devDependencies['typescript']).toEqual(latestVersions.TypeScript);
+      expect(pkg.devDependencies['typescript']).toEqual(latestVersions['typescript']);
     });
 
     it(`should not override existing users dependencies`, async () => {
@@ -349,7 +349,7 @@ describe('Application Schematic', () => {
       workspaceTree.overwrite(
         'package.json',
         oldPackageJson.replace(
-          `"typescript": "${latestVersions.TypeScript}"`,
+          `"typescript": "${latestVersions['typescript']}"`,
           `"typescript": "~2.5.2"`,
         ),
       );
@@ -523,25 +523,6 @@ describe('Application Schematic', () => {
       const specTsConfig = readJsonFile(tree, '/foo/tsconfig.spec.json');
       expect(specTsConfig.extends).toEqual('../tsconfig.json');
     });
-  });
-
-  it(`should add support for IE 11 in '.browserslistrc' when 'legacyBrowsers' is true`, async () => {
-    const options: ApplicationOptions = { ...defaultOptions, legacyBrowsers: true };
-    const tree = await schematicRunner
-      .runSchematicAsync('application', options, workspaceTree)
-      .toPromise();
-    const content = tree.readContent('/projects/foo/.browserslistrc');
-    expect(content).not.toContain('not IE 11');
-    expect(content).toContain('IE 11');
-  });
-
-  it(`should not add support for IE 11 in '.browserslistrc' when 'legacyBrowsers' is false`, async () => {
-    const options: ApplicationOptions = { ...defaultOptions, legacyBrowsers: false };
-    const tree = await schematicRunner
-      .runSchematicAsync('application', options, workspaceTree)
-      .toPromise();
-    const content = tree.readContent('/projects/foo/.browserslistrc');
-    expect(content).toContain('not IE 11');
   });
 
   it(`should create kebab-case project folder names with camelCase project name`, async () => {

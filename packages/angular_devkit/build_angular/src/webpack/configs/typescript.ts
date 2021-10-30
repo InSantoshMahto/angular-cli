@@ -7,8 +7,10 @@
  */
 
 import { getSystemPath } from '@angular-devkit/core';
-import { CompilerOptions } from '@angular/compiler-cli';
+import type { CompilerOptions } from '@angular/compiler-cli';
 import { AngularWebpackLoaderPath, AngularWebpackPlugin } from '@ngtools/webpack';
+import { ScriptTarget } from 'typescript';
+import { Configuration } from 'webpack';
 import { WebpackConfigOptions } from '../../utils/build-options';
 
 function ensureIvy(wco: WebpackConfigOptions): void {
@@ -42,6 +44,13 @@ function createIvyPlugin(
 
   if (buildOptions.preserveSymlinks !== undefined) {
     compilerOptions.preserveSymlinks = buildOptions.preserveSymlinks;
+  }
+
+  // Outputting ES2015 from TypeScript is the required minimum for the build optimizer passes.
+  // Downleveling to ES5 will occur after the build optimizer passes via babel which is the same
+  // as for third-party libraries. This greatly reduces the complexity of static analysis.
+  if (wco.scriptTarget < ScriptTarget.ES2015) {
+    compilerOptions.target = ScriptTarget.ES2015;
   }
 
   const fileReplacements: Record<string, string> = {};
@@ -78,23 +87,29 @@ function createIvyPlugin(
   });
 }
 
-export function getTypeScriptConfig(wco: WebpackConfigOptions) {
-  const { buildOptions, tsConfigPath } = wco;
-  const aot = !!buildOptions.aot;
+export function getTypeScriptConfig(wco: WebpackConfigOptions): Configuration {
+  const {
+    buildOptions: { aot = false, main, polyfills },
+    tsConfigPath,
+  } = wco;
 
-  ensureIvy(wco);
+  if (main || polyfills) {
+    ensureIvy(wco);
 
-  return {
-    module: {
-      rules: [
-        {
-          test: /\.[jt]sx?$/,
-          loader: AngularWebpackLoaderPath,
-        },
-      ],
-    },
-    plugins: [createIvyPlugin(wco, aot, tsConfigPath)],
-  };
+    return {
+      module: {
+        rules: [
+          {
+            test: /\.[jt]sx?$/,
+            loader: AngularWebpackLoaderPath,
+          },
+        ],
+      },
+      plugins: [createIvyPlugin(wco, aot, tsConfigPath)],
+    };
+  }
+
+  return {};
 }
 
 export function getTypescriptWorkerPlugin(wco: WebpackConfigOptions, workerTsConfigPath: string) {

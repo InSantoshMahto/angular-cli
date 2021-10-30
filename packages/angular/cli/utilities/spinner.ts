@@ -6,7 +6,7 @@
  * found in the LICENSE file at https://angular.io/license
  */
 
-import * as ora from 'ora';
+import ora from 'ora';
 import { colors } from './color';
 
 export class Spinner {
@@ -44,7 +44,7 @@ export class Spinner {
   }
 
   warn(text?: string): void {
-    this.spinner.fail(text && colors.yellowBright(text));
+    this.spinner.warn(text && colors.yellowBright(text));
   }
 
   stop(): void {

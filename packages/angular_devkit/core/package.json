@@ -8,12 +8,20 @@
     "core"
   ],
   "dependencies": {
-    "ajv": "8.5.0",
-    "ajv-formats": "2.1.0",
+    "ajv-formats": "2.1.1",
+    "ajv": "8.6.3",
     "fast-json-stable-stringify": "2.1.0",
     "magic-string": "0.25.7",
     "rxjs": "6.6.7",
     "source-map": "0.7.3"
+  },
+  "peerDependencies": {
+    "chokidar": "^3.5.2"
+  },
+  "peerDependenciesMeta": {
+    "chokidar": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "seedrandom": "^3.0.0"

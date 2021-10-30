@@ -7,11 +7,12 @@
  */
 
 import { BuilderContext } from '@angular-devkit/architect';
-import { getSystemPath, logging, normalize, resolve } from '@angular-devkit/core';
+import { getSystemPath, json, logging, normalize, resolve } from '@angular-devkit/core';
 import * as path from 'path';
+import { ScriptTarget } from 'typescript';
 import { Configuration, javascript } from 'webpack';
 import { merge as webpackMerge } from 'webpack-merge';
-import { Schema as BrowserBuilderSchema } from '../browser/schema';
+import { Schema as BrowserBuilderSchema } from '../builders/browser/schema';
 import { NormalizedBrowserBuilderSchema, defaultProgress, normalizeBrowserSchema } from '../utils';
 import { WebpackConfigOptions } from '../utils/build-options';
 import { readTsconfig } from '../utils/read-tsconfig';
@@ -20,12 +21,17 @@ import { I18nOptions, configureI18nBuild } from './i18n-options';
 
 export type BrowserWebpackConfigOptions = WebpackConfigOptions<NormalizedBrowserBuilderSchema>;
 
+export type WebpackPartialGenerator = (
+  configurationOptions: BrowserWebpackConfigOptions,
+) => (Promise<Configuration> | Configuration)[];
+
 export async function generateWebpackConfig(
   workspaceRoot: string,
   projectRoot: string,
   sourceRoot: string | undefined,
+  projectName: string,
   options: NormalizedBrowserBuilderSchema,
-  webpackPartialGenerator: (wco: BrowserWebpackConfigOptions) => Configuration[],
+  webpackPartialGenerator: WebpackPartialGenerator,
   logger: logging.LoggerApi,
   extraBuildOptions: Partial<NormalizedBrowserBuilderSchema>,
 ): Promise<Configuration> {
@@ -35,7 +41,7 @@ export async function generateWebpackConfig(
   }
 
   const tsConfigPath = path.resolve(workspaceRoot, options.tsConfig);
-  const tsConfig = readTsconfig(tsConfigPath);
+  const tsConfig = await readTsconfig(tsConfigPath);
 
   const ts = await import('typescript');
   const scriptTarget = tsConfig.options.target || ts.ScriptTarget.ES5;
@@ -49,12 +55,14 @@ export async function generateWebpackConfig(
     buildOptions,
     tsConfig,
     tsConfigPath,
+    projectName,
     scriptTarget,
   };
 
   wco.buildOptions.progress = defaultProgress(wco.buildOptions.progress);
 
-  const webpackConfig = webpackMerge(webpackPartialGenerator(wco));
+  const partials = await Promise.all(webpackPartialGenerator(wco));
+  const webpackConfig = webpackMerge(partials);
 
   return webpackConfig;
 }
@@ -62,19 +70,25 @@ export async function generateWebpackConfig(
 export async function generateI18nBrowserWebpackConfigFromContext(
   options: BrowserBuilderSchema,
   context: BuilderContext,
-  webpackPartialGenerator: (wco: BrowserWebpackConfigOptions) => Configuration[],
+  webpackPartialGenerator: WebpackPartialGenerator,
   extraBuildOptions: Partial<NormalizedBrowserBuilderSchema> = {},
 ): Promise<{
   config: Configuration;
   projectRoot: string;
   projectSourceRoot?: string;
   i18n: I18nOptions;
+  target: ScriptTarget;
 }> {
   const { buildOptions, i18n } = await configureI18nBuild(context, options);
+  let target = ScriptTarget.ES5;
   const result = await generateBrowserWebpackConfigFromContext(
     buildOptions,
     context,
-    webpackPartialGenerator,
+    (wco) => {
+      target = wco.scriptTarget;
+
+      return webpackPartialGenerator(wco);
+    },
     extraBuildOptions,
   );
   const config = result.config;
@@ -87,14 +101,14 @@ export async function generateI18nBrowserWebpackConfigFromContext(
       }
       if (Array.isArray(config.resolve.alias)) {
         config.resolve.alias.push({
-          alias: '@angular/localize/init',
-          name: require.resolve('./empty.js'),
+          name: '@angular/localize/init',
+          alias: false,
         });
       } else {
         if (!config.resolve.alias) {
           config.resolve.alias = {};
         }
-        config.resolve.alias['@angular/localize/init'] = require.resolve('./empty.js');
+        config.resolve.alias['@angular/localize/init'] = false;
       }
     }
 
@@ -119,12 +133,12 @@ export async function generateI18nBrowserWebpackConfigFromContext(
     });
   }
 
-  return { ...result, i18n };
+  return { ...result, i18n, target };
 }
 export async function generateBrowserWebpackConfigFromContext(
   options: BrowserBuilderSchema,
   context: BuilderContext,
-  webpackPartialGenerator: (wco: BrowserWebpackConfigOptions) => Configuration[],
+  webpackPartialGenerator: WebpackPartialGenerator,
   extraBuildOptions: Partial<NormalizedBrowserBuilderSchema> = {},
 ): Promise<{ config: Configuration; projectRoot: string; projectSourceRoot?: string }> {
   const projectName = context.target && context.target.project;
@@ -140,12 +154,19 @@ export async function generateBrowserWebpackConfigFromContext(
     ? resolve(workspaceRoot, normalize(projectSourceRoot))
     : undefined;
 
-  const normalizedOptions = normalizeBrowserSchema(workspaceRoot, projectRoot, sourceRoot, options);
+  const normalizedOptions = normalizeBrowserSchema(
+    workspaceRoot,
+    projectRoot,
+    sourceRoot,
+    options,
+    projectMetadata,
+  );
 
   const config = await generateWebpackConfig(
     getSystemPath(workspaceRoot),
     getSystemPath(projectRoot),
     sourceRoot && getSystemPath(sourceRoot),
+    projectName,
     normalizedOptions,
     webpackPartialGenerator,
     context.logger,
@@ -154,9 +175,11 @@ export async function generateBrowserWebpackConfigFromContext(
 
   // If builder watch support is present in the context, add watch plugin
   // This is internal only and currently only used for testing
-  const watcherFactory = (context as {
-    watcherFactory?: BuilderWatcherFactory;
-  }).watcherFactory;
+  const watcherFactory = (
+    context as {
+      watcherFactory?: BuilderWatcherFactory;
+    }
+  ).watcherFactory;
   if (watcherFactory) {
     if (!config.plugins) {
       config.plugins = [];

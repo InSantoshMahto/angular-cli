@@ -138,7 +138,7 @@ describe('Universal Schematic', () => {
       .toPromise();
     const filePath = '/package.json';
     const contents = tree.readContent(filePath);
-    expect(contents).toMatch(/\"@angular\/platform-server\": \"/);
+    expect(contents).toMatch(/"@angular\/platform-server": "/);
   });
 
   it('should update workspace with a server target', async () => {
@@ -191,7 +191,7 @@ describe('Universal Schematic', () => {
       .toPromise();
     const filePath = '/projects/bar/src/main.ts';
     const contents = tree.readContent(filePath);
-    expect(contents).toMatch(/document.addEventListener\('DOMContentLoaded', \(\) => {/);
+    expect(contents).toContain(`document.addEventListener('DOMContentLoaded', bootstrap);`);
   });
 
   it('should wrap the bootstrap declaration in a DOMContentLoaded event handler', async () => {
@@ -221,9 +221,7 @@ describe('Universal Schematic', () => {
       .runSchematicAsync('universal', defaultOptions, appTree)
       .toPromise();
     const contents = tree.readContent(filePath);
-    expect(contents).toMatch(
-      /document.addEventListener\('DOMContentLoaded', \(\) => {[\n\r\s]+bootstrap\(\)/,
-    );
+    expect(contents).toContain(`document.addEventListener('DOMContentLoaded', bootstrap);`);
   });
 
   it('should install npm dependencies', async () => {

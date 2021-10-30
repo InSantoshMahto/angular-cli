@@ -40,15 +40,6 @@ interface RenderResponseMessage {
 }
 
 /**
- * Workaround required for lack of new Worker transfer list support in Node.js prior to 12.17
- */
-let transferListWorkaround = false;
-const version = process.versions.node.split('.').map((part) => Number(part));
-if (version[0] === 12 && version[1] < 17) {
-  transferListWorkaround = true;
-}
-
-/**
  * A Sass renderer implementation that provides an interface that can be used by Webpack's
  * `sass-loader`. The implementation uses a Worker thread to perform the Sass rendering
  * with the `dart-sass` package.  The `dart-sass` synchronous render function is used within
@@ -83,9 +74,11 @@ export class SassWorkerImplementation {
    * @param callback The function to execute when the rendering is complete.
    */
   render(options: Options, callback: RenderCallback): void {
-    // The `functions` and `importer` options are JavaScript functions that cannot be transferred.
+    // The `functions`, `logger` and `importer` options are JavaScript functions that cannot be transferred.
     // If any additional function options are added in the future, they must be excluded as well.
-    const { functions, importer, ...serializableOptions } = options;
+    const { functions, importer, logger, ...serializableOptions } = options as Options & {
+      logger?: unknown;
+    };
 
     // The CLI's configuration does not use or expose the ability to defined custom Sass functions
     if (functions && Object.keys(functions).length > 0) {
@@ -134,13 +127,9 @@ export class SassWorkerImplementation {
 
     const workerPath = require.resolve('./worker');
     const worker = new Worker(workerPath, {
-      workerData: transferListWorkaround ? undefined : { workerImporterPort, importerSignal },
-      transferList: transferListWorkaround ? undefined : [workerImporterPort],
+      workerData: { workerImporterPort, importerSignal },
+      transferList: [workerImporterPort],
     });
-
-    if (transferListWorkaround) {
-      worker.postMessage({ init: true, workerImporterPort, importerSignal }, [workerImporterPort]);
-    }
 
     worker.on('message', (response: RenderResponseMessage) => {
       const request = this.requests.get(response.id);

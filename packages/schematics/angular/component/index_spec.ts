@@ -7,7 +7,7 @@
  */
 
 import { SchematicTestRunner, UnitTestTree } from '@angular-devkit/schematics/testing';
-import { Schema as ApplicationOptions } from '../application/schema';
+import { Style as AppStyle, Schema as ApplicationOptions } from '../application/schema';
 import { createAppModule } from '../utility/test';
 import { Schema as WorkspaceOptions } from '../workspace/schema';
 import { ChangeDetection, Schema as ComponentOptions, Style } from './schema';
@@ -43,7 +43,7 @@ describe('Component Schematic', () => {
     inlineStyle: false,
     inlineTemplate: false,
     routing: false,
-    style: Style.Css,
+    style: AppStyle.Css,
     skipTests: false,
     skipPackageJson: false,
   };
@@ -278,6 +278,15 @@ describe('Component Schematic', () => {
     expect(tree.files).not.toContain('/projects/bar/src/app/foo/foo.component.css');
   });
 
+  it('should respect the style=none option', async () => {
+    const options = { ...defaultOptions, style: Style.None };
+    const tree = await schematicRunner.runSchematicAsync('component', options, appTree).toPromise();
+    const content = tree.readContent('/projects/bar/src/app/foo/foo.component.ts');
+    expect(content).not.toMatch(/styleUrls: /);
+    expect(tree.files).not.toContain('/projects/bar/src/app/foo/foo.component.css');
+    expect(tree.files).not.toContain('/projects/bar/src/app/foo/foo.component.none');
+  });
+
   it('should respect the type option', async () => {
     const options = { ...defaultOptions, type: 'Route' };
     const tree = await schematicRunner.runSchematicAsync('component', options, appTree).toPromise();
@@ -364,5 +373,20 @@ describe('Component Schematic', () => {
       .runSchematicAsync('component', defaultOptions, appTree)
       .toPromise();
     expect(appTree.files).toContain('/projects/bar/custom/app/foo/foo.component.ts');
+  });
+
+  it('should respect the skipTests option', async () => {
+    const options = { ...defaultOptions, skipTests: true };
+    const tree = await schematicRunner.runSchematicAsync('component', options, appTree).toPromise();
+    const files = tree.files;
+
+    expect(files).toEqual(
+      jasmine.arrayContaining([
+        '/projects/bar/src/app/foo/foo.component.css',
+        '/projects/bar/src/app/foo/foo.component.html',
+        '/projects/bar/src/app/foo/foo.component.ts',
+      ]),
+    );
+    expect(tree.files).not.toContain('/projects/bar/src/app/foo/foo.component.spec.ts');
   });
 });

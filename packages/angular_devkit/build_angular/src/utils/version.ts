@@ -6,32 +6,31 @@
  * found in the LICENSE file at https://angular.io/license
  */
 
-import { logging, tags } from '@angular-devkit/core';
-import { SemVer, gte, satisfies } from 'semver';
+/* eslint-disable no-console */
 
-export function assertCompatibleAngularVersion(projectRoot: string, logger: logging.LoggerApi) {
+import { tags } from '@angular-devkit/core';
+import { SemVer, satisfies } from 'semver';
+
+export function assertCompatibleAngularVersion(projectRoot: string): void | never {
   let angularCliPkgJson;
   let angularPkgJson;
-  let rxjsPkgJson;
   const resolveOptions = { paths: [projectRoot] };
 
   try {
     const angularPackagePath = require.resolve('@angular/core/package.json', resolveOptions);
-    const rxjsPackagePath = require.resolve('rxjs/package.json', resolveOptions);
 
     angularPkgJson = require(angularPackagePath);
-    rxjsPkgJson = require(rxjsPackagePath);
   } catch {
-    logger.error(tags.stripIndents`
-      You seem to not be depending on "@angular/core" and/or "rxjs". This is an error.
+    console.error(tags.stripIndents`
+      You seem to not be depending on "@angular/core". This is an error.
     `);
 
     process.exit(2);
   }
 
-  if (!(angularPkgJson && angularPkgJson['version'] && rxjsPkgJson && rxjsPkgJson['version'])) {
-    logger.error(tags.stripIndents`
-      Cannot determine versions of "@angular/core" and/or "rxjs".
+  if (!(angularPkgJson && angularPkgJson['version'])) {
+    console.error(tags.stripIndents`
+      Cannot determine versions of "@angular/core".
       This likely means your local installation is broken. Please reinstall your packages.
     `);
 
@@ -56,14 +55,12 @@ export function assertCompatibleAngularVersion(projectRoot: string, logger: logg
     return;
   }
 
+  const supportedAngularSemver =
+    require('../../package.json')['peerDependencies']['@angular/compiler-cli'];
   const angularVersion = new SemVer(angularPkgJson['version']);
-  const cliMajor = new SemVer(angularCliPkgJson['version']).major;
-  // e.g. CLI 8.0 supports '>=8.0.0 <9.0.0', including pre-releases (next, rcs, snapshots)
-  // of both 8 and 9.
-  const supportedAngularSemver = `^${cliMajor}.0.0-next || >=${cliMajor}.0.0 <${cliMajor + 1}.0.0`;
 
   if (!satisfies(angularVersion, supportedAngularSemver, { includePrerelease: true })) {
-    logger.error(
+    console.error(
       tags.stripIndents`
         This version of CLI is only compatible with Angular versions ${supportedAngularSemver},
         but Angular version ${angularVersion} was found instead.

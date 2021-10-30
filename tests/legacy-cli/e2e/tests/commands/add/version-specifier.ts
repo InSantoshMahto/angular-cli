@@ -3,14 +3,13 @@ import { uninstallPackage } from '../../../utils/packages';
 import { ng } from '../../../utils/process';
 import { isPrereleaseCli } from '../../../utils/project';
 
-
 export default async function () {
   // forcibly remove in case another test doesn't clean itself up.
   await rimraf('node_modules/@angular/localize');
 
-  const tag = await isPrereleaseCli() ?  '@next' : '';
+  const tag = (await isPrereleaseCli()) ? '@next' : '';
 
-  await ng('add',  `@angular/localize${tag}`, '--skip-confirmation');
+  await ng('add', `@angular/localize${tag}`, '--skip-confirmation');
   await expectFileToMatch('package.json', /@angular\/localize/);
 
   const output1 = await ng('add', '@angular/localize', '--skip-confirmation');
@@ -23,12 +22,13 @@ export default async function () {
     throw new Error('Installation should not have been skipped');
   }
 
-  const output3 = await ng('add', '@angular/localize@10.0.0', '--skip-confirmation');
+  // v12.2.0 has a package.json engine field that supports Node.js v16+
+  const output3 = await ng('add', '@angular/localize@12.2.0', '--skip-confirmation');
   if (output3.stdout.includes('Skipping installation: Package already installed')) {
     throw new Error('Installation should not have been skipped');
   }
 
-  const output4 = await ng('add', '@angular/localize@10', '--skip-confirmation');
+  const output4 = await ng('add', '@angular/localize@12', '--skip-confirmation');
   if (!output4.stdout.includes('Skipping installation: Package already installed')) {
     throw new Error('Installation was not skipped');
   }

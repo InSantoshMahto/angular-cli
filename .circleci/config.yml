@@ -10,16 +10,16 @@
 version: 2.1
 
 orbs:
-  browser-tools: circleci/browser-tools@1.0.1
+  browser-tools: circleci/browser-tools@1.1.3
 
 # Variables
 
 ## IMPORTANT
 # Windows needs its own cache key because binaries in node_modules are different.
 # See https://circleci.com/docs/2.0/caching/#restoring-cache for how prefixes work in CircleCI.
-var_1: &cache_key v1-angular_devkit-14.15-{{ checksum "yarn.lock" }}
+var_1: &cache_key v1-angular_devkit-14.17-{{ checksum "yarn.lock" }}
 var_1_win: &cache_key_win v1-angular_devkit-win-12.22-{{ checksum "yarn.lock" }}
-var_3: &default_nodeversion '14.15'
+var_3: &default_nodeversion '14.17'
 # Workspace initially persisted by the `setup` job, and then enhanced by `setup-and-build-win`.
 # https://circleci.com/docs/2.0/workflows/#using-workspaces-to-share-data-among-jobs
 # https://circleci.com/blog/deep-diving-into-circleci-workspaces/
@@ -68,6 +68,14 @@ executors:
 # Command Definitions
 # https://circleci.com/docs/2.0/reusing-config/#authoring-reusable-commands
 commands:
+  fail_fast:
+    steps:
+      - run:
+          name: 'Cancel workflow on fail'
+          when: on_fail
+          command: |
+            curl -X POST --header "Content-Type: application/json" "https://circleci.com/api/v2/workflow/${CIRCLE_WORKFLOW_ID}/cancel?circle-token=${CIRCLE_TOKEN}"
+
   custom_attach_workspace:
     description: Attach workspace at a predefined location
     steps:
@@ -196,7 +204,10 @@ jobs:
       - browser-tools/install-chrome
       - run:
           name: Initialize Environment
-          command: ./.circleci/env.sh
+          # npm 7 currently does not properly publish the packages locally
+          command: |
+            ./.circleci/env.sh
+            sudo npm install --global npm@6
       - run:
           name: Execute CLI E2E Tests
           command: |
@@ -207,6 +218,7 @@ jobs:
           command: |
             mkdir /mnt/ramdisk/e2e-yarn
             node ./tests/legacy-cli/run_e2e --nb-shards=${CIRCLE_NODE_TOTAL} --shard=${CIRCLE_NODE_INDEX} <<# parameters.snapshots >>--ng-snapshots<</ parameters.snapshots >> --yarn --tmpdir=/mnt/ramdisk/e2e-yarn --glob="{tests/basic/**,tests/update/**,tests/commands/add/**}"
+      - fail_fast
 
   test-browsers:
     executor:
@@ -232,6 +244,7 @@ jobs:
       - run: node ./tests/legacy-cli/run_e2e ./tests/legacy-cli/e2e/tests/misc/browsers.ts --ve
       - run: node ./tests/legacy-cli/run_e2e ./tests/legacy-cli/e2e/tests/misc/browsers.ts
       - run: ./scripts/saucelabs/stop-tunnel.sh
+      - fail_fast
 
   build:
     executor: action-executor
@@ -250,6 +263,7 @@ jobs:
       - run:
           command: yarn bazel:test
           no_output_timeout: 20m
+      - fail_fast
 
   snapshot_publish:
     executor: action-executor
@@ -267,13 +281,26 @@ jobs:
           name: Deployment to Snapshot
           command: |
             yarn admin snapshots --verbose --githubTokenFile=${HOME}/github_token
+      - fail_fast
 
   # Windows jobs
   e2e-cli-win:
     executor: windows-executor
     parallelism: 8
     steps:
-      - custom_attach_workspace
+      - checkout
+      - run:
+          name: Rebase PR on target branch
+          command: |
+            if (Test-Path env:CIRCLE_PR_NUMBER) {
+              # User is required for rebase.
+              git config user.name "angular-ci"
+              git config user.email "angular-ci"
+              # Rebase PR on top of target branch.
+              node tools/rebase-pr.js angular/angular-cli $env:CIRCLE_PR_NUMBER
+            } else {
+              echo "This build is not over a PR, nothing to do."
+            }
       - setup_windows
       - restore_cache:
           keys:
@@ -292,6 +319,7 @@ jobs:
             } else {
               node tests\legacy-cli\run_e2e.js --nb-shards=$env:CIRCLE_NODE_TOTAL --shard=$env:CIRCLE_NODE_INDEX
             }
+      - fail_fast
 
 workflows:
   version: 2
@@ -310,6 +338,7 @@ workflows:
             - setup
       - e2e-cli:
           name: e2e-cli
+          nodeversion: '14.15'
           post-steps:
             - store_artifacts:
                 path: /tmp/dist
@@ -320,7 +349,7 @@ workflows:
           name: e2e-cli-ng-snapshots
           snapshots: true
           requires:
-            - e2e-cli
+            - build
           filters:
             branches:
               only:
@@ -331,7 +360,13 @@ workflows:
           nodeversion: '12.20'
           <<: *only_release_branches
           requires:
-            - e2e-cli
+            - build
+      - e2e-cli:
+          name: e2e-cli-node-16
+          nodeversion: '16.10'
+          <<: *only_release_branches
+          requires:
+            - build
       - test-browsers:
           requires:
             - build
@@ -347,7 +382,7 @@ workflows:
       # Windows jobs
       - e2e-cli-win:
           requires:
-            - test
+            - build
 
       # Publish jobs
       - snapshot_publish:

@@ -190,7 +190,7 @@ export class ProjectDefinitionCollection extends DefinitionCollection<ProjectDef
     return project;
   }
 
-  set(name: string, value: ProjectDefinition): this {
+  override set(name: string, value: ProjectDefinition): this {
     this._validateName(name);
 
     super.set(name, value);
@@ -199,7 +199,7 @@ export class ProjectDefinitionCollection extends DefinitionCollection<ProjectDef
   }
 
   private _validateName(name: string): void {
-    if (typeof name !== 'string' || !/^(?:@\w[\w\.-]*\/)?\w[\w\.-]*$/.test(name)) {
+    if (typeof name !== 'string' || !/^(?:@\w[\w.-]*\/)?\w[\w.-]*$/.test(name)) {
       throw new Error('Project name must be a valid npm package name.');
     }
   }
@@ -235,7 +235,7 @@ export class TargetDefinitionCollection extends DefinitionCollection<TargetDefin
     return target;
   }
 
-  set(name: string, value: TargetDefinition): this {
+  override set(name: string, value: TargetDefinition): this {
     this._validateName(name);
 
     super.set(name, value);

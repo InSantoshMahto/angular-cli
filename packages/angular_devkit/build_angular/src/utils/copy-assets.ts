@@ -7,9 +7,8 @@
  */
 
 import * as fs from 'fs';
-import * as glob from 'glob';
+import glob from 'glob';
 import * as path from 'path';
-import { copyFile } from './copy-file';
 
 function globAsync(pattern: string, options: glob.IOptions) {
   return new Promise<string[]>((resolve, reject) =>
@@ -60,7 +59,7 @@ export async function copyAssets(
           }
           directoryExists.add(dir);
         }
-        copyFile(src, dest);
+        fs.copyFileSync(src, dest, fs.constants.COPYFILE_FICLONE);
       }
     }
   }

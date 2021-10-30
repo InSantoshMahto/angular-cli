@@ -7,9 +7,10 @@
  */
 
 import { json, tags } from '@angular-devkit/core';
-import * as debug from 'debug';
+import debug from 'debug';
 import * as inquirer from 'inquirer';
 import { v4 as uuidV4 } from 'uuid';
+import { VERSION } from '../models/version';
 import { colors } from '../utilities/color';
 import { getWorkspace, getWorkspaceRaw } from '../utilities/config';
 import { isTTY } from '../utilities/tty';
@@ -27,7 +28,7 @@ export const AnalyticsProperties = {
       return _defaultAngularCliPropertyCache;
     }
 
-    const v = require('../package.json').version;
+    const v = VERSION.full;
 
     // The logic is if it's a full version then we should use the prod GA property.
     if (/^\d+\.\d+\.\d+$/.test(v) && v !== '0.0.0') {
@@ -173,7 +174,7 @@ export async function promptProjectAnalytics(force = false): Promise<boolean> {
     if (answers.analytics) {
       console.log('');
       console.log(tags.stripIndent`
-        Thank you for sharing anonymous usage data. Would you change your mind, the following
+        Thank you for sharing anonymous usage data. Should you change your mind, the following
         command will disable this feature entirely:
 
             ${colors.yellow('ng analytics project off')}
@@ -298,9 +299,8 @@ export async function getWorkspaceAnalytics(): Promise<AnalyticsCollector | unde
   analyticsDebug('getWorkspaceAnalytics');
   try {
     const globalWorkspace = await getWorkspace('local');
-    const analyticsConfig: string | undefined | null | { uid?: string } = globalWorkspace?.getCli()[
-      'analytics'
-    ];
+    const analyticsConfig: string | undefined | null | { uid?: string } =
+      globalWorkspace?.getCli()['analytics'];
     analyticsDebug('Workspace Analytics config found: %j', analyticsConfig);
 
     if (analyticsConfig === false) {

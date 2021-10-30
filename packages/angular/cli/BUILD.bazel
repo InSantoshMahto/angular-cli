@@ -19,6 +19,7 @@ package(default_visibility = ["//visibility:public"])
 
 ts_library(
     name = "angular-cli",
+    package_name = "@angular/cli",
     srcs = glob(
         include = ["**/*.ts"],
         exclude = [
@@ -83,23 +84,27 @@ ts_library(
         "@npm//@types/resolve",
         "@npm//@types/semver",
         "@npm//@types/uuid",
+        "@npm//@yarnpkg/lockfile",
         "@npm//ansi-colors",
+        "@npm//ini",
         "@npm//jsonc-parser",
+        "@npm//npm-package-arg",
         "@npm//open",
         "@npm//ora",
+        "@npm//pacote",
+        "@npm//semver",
     ],
 )
 
 CLI_SCHEMA_DATA = [
-    "//packages/angular_devkit/build_angular:src/app-shell/schema.json",
-    "//packages/angular_devkit/build_angular:src/browser/schema.json",
-    "//packages/angular_devkit/build_angular:src/dev-server/schema.json",
-    "//packages/angular_devkit/build_angular:src/extract-i18n/schema.json",
-    "//packages/angular_devkit/build_angular:src/karma/schema.json",
-    "//packages/angular_devkit/build_angular:src/ng-packagr/schema.json",
-    "//packages/angular_devkit/build_angular:src/protractor/schema.json",
-    "//packages/angular_devkit/build_angular:src/server/schema.json",
-    "//packages/angular_devkit/build_angular:src/tslint/schema.json",
+    "//packages/angular_devkit/build_angular:src/builders/app-shell/schema.json",
+    "//packages/angular_devkit/build_angular:src/builders/browser/schema.json",
+    "//packages/angular_devkit/build_angular:src/builders/dev-server/schema.json",
+    "//packages/angular_devkit/build_angular:src/builders/extract-i18n/schema.json",
+    "//packages/angular_devkit/build_angular:src/builders/karma/schema.json",
+    "//packages/angular_devkit/build_angular:src/builders/ng-packagr/schema.json",
+    "//packages/angular_devkit/build_angular:src/builders/protractor/schema.json",
+    "//packages/angular_devkit/build_angular:src/builders/server/schema.json",
     "//packages/schematics/angular:app-shell/schema.json",
     "//packages/schematics/angular:application/schema.json",
     "//packages/schematics/angular:class/schema.json",

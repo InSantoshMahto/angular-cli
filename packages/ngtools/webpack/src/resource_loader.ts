@@ -9,12 +9,13 @@
 import { createHash } from 'crypto';
 import * as path from 'path';
 import * as vm from 'vm';
-import { Asset, Compilation, EntryPlugin, NormalModule, library, node, sources } from 'webpack';
+import type { Asset, Compilation } from 'webpack';
+import { normalizePath } from './ivy/paths';
 import {
   CompilationWithInlineAngularResource,
+  InlineAngularResourceLoaderPath,
   InlineAngularResourceSymbol,
-} from './inline-data-loader';
-import { normalizePath } from './ivy/paths';
+} from './loaders/inline-resource';
 
 interface CompilationOutput {
   content: string;
@@ -33,7 +34,7 @@ export class WebpackResourceLoader {
   private modifiedResources = new Set<string>();
   private outputPathCounter = 1;
 
-  private readonly inlineDataLoaderPath = require.resolve('./inline-data-loader');
+  private readonly inlineDataLoaderPath = InlineAngularResourceLoaderPath;
 
   constructor(shouldCache: boolean) {
     if (shouldCache) {
@@ -101,7 +102,6 @@ export class WebpackResourceLoader {
   private async _compile(
     filePath?: string,
     data?: string,
-    mimeType?: string,
     fileExtension?: string,
     resourceType?: 'style' | 'template',
     containingFile?: string,
@@ -142,7 +142,8 @@ export class WebpackResourceLoader {
       },
     };
 
-    const context = this._parentCompilation.compiler.context;
+    const { context, webpack } = this._parentCompilation.compiler;
+    const { EntryPlugin, NormalModule, library, node, sources } = webpack;
     const childCompiler = this._parentCompilation.createChildCompiler(
       'angular-compiler:resource',
       outputOptions,
@@ -165,10 +166,6 @@ export class WebpackResourceLoader {
               if (filePath) {
                 resourceData.path = filePath;
                 resourceData.resource = filePath;
-              }
-
-              if (mimeType) {
-                resourceData.data.mimetype = mimeType;
               }
 
               return true;
@@ -201,13 +198,11 @@ export class WebpackResourceLoader {
     );
 
     let finalContent: string | undefined;
-    let finalMap: string | undefined;
     childCompiler.hooks.compilation.tap('angular-compiler', (childCompilation) => {
       childCompilation.hooks.processAssets.tap(
-        { name: 'angular-compiler', stage: Compilation.PROCESS_ASSETS_STAGE_REPORT },
+        { name: 'angular-compiler', stage: webpack.Compilation.PROCESS_ASSETS_STAGE_REPORT },
         () => {
           finalContent = childCompilation.assets[outputFilePath]?.source().toString();
-          finalMap = childCompilation.assets[outputFilePath + '.map']?.source().toString();
 
           delete childCompilation.assets[outputFilePath];
           delete childCompilation.assets[outputFilePath + '.map'];
@@ -233,48 +228,56 @@ export class WebpackResourceLoader {
         const parent = childCompiler.parentCompilation;
         if (parent) {
           parent.children = parent.children.filter((child) => child !== childCompilation);
+          let fileDependencies: Set<string> | undefined;
 
-          for (const fileDependency of childCompilation.fileDependencies) {
-            if (data && containingFile && fileDependency.endsWith(entry)) {
+          for (const dependency of childCompilation.fileDependencies) {
+            // Skip paths that do not appear to be files (have no extension).
+            // `fileDependencies` can contain directories and not just files which can
+            // cause incorrect cache invalidation on rebuilds.
+            if (!path.extname(dependency)) {
+              continue;
+            }
+
+            if (data && containingFile && dependency.endsWith(entry)) {
               // use containing file if the resource was inline
               parent.fileDependencies.add(containingFile);
             } else {
-              parent.fileDependencies.add(fileDependency);
+              parent.fileDependencies.add(dependency);
+            }
+
+            // Save the dependencies for this resource.
+            if (filePath) {
+              const resolvedFile = normalizePath(dependency);
+              const entry = this._reverseDependencies.get(resolvedFile);
+              if (entry) {
+                entry.add(filePath);
+              } else {
+                this._reverseDependencies.set(resolvedFile, new Set([filePath]));
+              }
+
+              if (fileDependencies) {
+                fileDependencies.add(dependency);
+              } else {
+                fileDependencies = new Set([dependency]);
+                this._fileDependencies.set(filePath, fileDependencies);
+              }
             }
           }
+
           parent.contextDependencies.addAll(childCompilation.contextDependencies);
           parent.missingDependencies.addAll(childCompilation.missingDependencies);
           parent.buildDependencies.addAll(childCompilation.buildDependencies);
 
           parent.warnings.push(...childCompilation.warnings);
           parent.errors.push(...childCompilation.errors);
-          for (const { info, name, source } of childCompilation.getAssets()) {
-            if (info.sourceFilename === undefined) {
-              throw new Error(`'${name}' asset info 'sourceFilename' is 'undefined'.`);
-            }
 
-            this.assetCache?.set(info.sourceFilename, { info, name, source });
-          }
-        }
+          if (this.assetCache) {
+            for (const { info, name, source } of childCompilation.getAssets()) {
+              // Use the originating file as the cache key if present
+              // Otherwise, generate a cache key based on the generated name
+              const cacheKey = info.sourceFilename ?? `!![GENERATED]:${name}`;
 
-        // Save the dependencies for this resource.
-        if (filePath) {
-          this._fileDependencies.set(filePath, new Set(childCompilation.fileDependencies));
-          for (const file of childCompilation.fileDependencies) {
-            const resolvedFile = normalizePath(file);
-
-            // Skip paths that do not appear to be files (have no extension).
-            // `fileDependencies` can contain directories and not just files which can
-            // cause incorrect cache invalidation on rebuilds.
-            if (!path.extname(resolvedFile)) {
-              continue;
-            }
-
-            const entry = this._reverseDependencies.get(resolvedFile);
-            if (entry) {
-              entry.add(filePath);
-            } else {
-              this._reverseDependencies.set(resolvedFile, new Set([filePath]));
+              this.assetCache.set(cacheKey, { info, name, source });
             }
           }
         }
@@ -326,7 +329,6 @@ export class WebpackResourceLoader {
 
   async process(
     data: string,
-    mimeType: string | undefined,
     fileExtension: string | undefined,
     resourceType: 'template' | 'style',
     containingFile?: string,
@@ -338,7 +340,6 @@ export class WebpackResourceLoader {
     const compilationResult = await this._compile(
       undefined,
       data,
-      mimeType,
       fileExtension,
       resourceType,
       containingFile,

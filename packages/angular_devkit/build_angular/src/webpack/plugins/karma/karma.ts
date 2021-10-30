@@ -11,13 +11,13 @@
 import * as http from 'http';
 import * as path from 'path';
 import * as glob from 'glob';
-import * as webpack from 'webpack';
+import webpack from 'webpack';
 const webpackDevMiddleware = require('webpack-dev-middleware');
 
 import { statsErrorsToString } from '../../utils/stats';
 import { createConsoleLogger } from '@angular-devkit/core/node';
 import { logging } from '@angular-devkit/core';
-import { WebpackTestOptions } from '../../../utils/build-options';
+import { BuildOptions } from '../../../utils/build-options';
 import { normalizeSourceMaps } from '../../../utils/index';
 
 const KARMA_APPLICATION_PATH = '_karma_webpack_';
@@ -58,7 +58,7 @@ const init: any = (config: any, emitter: any) => {
         ` be used from within Angular CLI and will not work correctly outside of it.`,
     );
   }
-  const options = config.buildWebpack.options as WebpackTestOptions;
+  const options = config.buildWebpack.options as BuildOptions;
   const logger: logging.Logger = config.buildWebpack.logger || createConsoleLogger();
   successCb = config.buildWebpack.successCb;
   failureCb = config.buildWebpack.failureCb;
@@ -86,32 +86,11 @@ const init: any = (config: any, emitter: any) => {
   config.reporters.unshift('@angular-devkit/build-angular--event-reporter');
 
   // When using code-coverage, auto-add karma-coverage.
-  if (options.codeCoverage) {
-    config.plugins = config.plugins || [];
-    config.reporters = config.reporters || [];
-    const { plugins, reporters } = config;
-    const hasCoveragePlugin = plugins.some(isPlugin('karma-coverage', 'reporter:coverage'));
-    const hasIstanbulPlugin = plugins.some(
-      isPlugin('karma-coverage-istanbul-reporter', 'reporter:coverage-istanbul'),
-    );
-    const hasCoverageReporter = reporters.includes('coverage');
-    const hasIstanbulReporter = reporters.includes('coverage-istanbul');
-    if (hasCoveragePlugin && !hasCoverageReporter) {
-      reporters.push('coverage');
-    } else if (hasIstanbulPlugin && !hasIstanbulReporter) {
-      // coverage-istanbul is deprecated in favor of karma-coverage
-      reporters.push('coverage-istanbul');
-    } else if (!hasCoveragePlugin && !hasIstanbulPlugin) {
-      throw new Error('karma-coverage must be installed in order to run code coverage.');
-    }
-
-    if (hasIstanbulPlugin) {
-      logger.warn(
-        `'karma-coverage-istanbul-reporter' usage has been deprecated since version 11.\n` +
-          `Please install 'karma-coverage' and update 'karma.conf.js.' ` +
-          'For more info, see https://github.com/karma-runner/karma-coverage/blob/master/README.md',
-      );
-    }
+  if (
+    options.codeCoverage &&
+    !config.reporters.some((r: string) => r === 'coverage' || r === 'coverage-istanbul')
+  ) {
+    config.reporters.push('coverage');
   }
 
   // Add webpack config.
@@ -299,9 +278,8 @@ function fallbackMiddleware() {
         const alwaysServe = [
           `/${KARMA_APPLICATION_PATH}/runtime.js`,
           `/${KARMA_APPLICATION_PATH}/polyfills.js`,
-          `/${KARMA_APPLICATION_PATH}/polyfills-es5.js`,
           `/${KARMA_APPLICATION_PATH}/scripts.js`,
-          `/${KARMA_APPLICATION_PATH}/styles.js`,
+          `/${KARMA_APPLICATION_PATH}/styles.css`,
           `/${KARMA_APPLICATION_PATH}/vendor.js`,
         ];
         if (request.url && alwaysServe.includes(request.url)) {
@@ -314,32 +292,6 @@ function fallbackMiddleware() {
     } else {
       next();
     }
-  };
-}
-
-/**
- * Returns a function that returns true if the plugin identifier matches the
- * `moduleId` or `pluginName`. A plugin identifier can be either a string or
- * an object according to https://karma-runner.github.io/5.2/config/plugins.html
- * @param moduleId name of the node module (e.g. karma-coverage)
- * @param pluginName name of the karma plugin (e.g. reporter:coverage)
- */
-function isPlugin(moduleId: string, pluginName: string) {
-  return (plugin: string | {}): boolean => {
-    if (typeof plugin === 'string') {
-      if (!plugin.includes('*')) {
-        return plugin === moduleId;
-      }
-      const regexp = new RegExp(`^${plugin.replace('*', '.*')}`);
-      if (regexp.test(moduleId)) {
-        try {
-          require.resolve(moduleId);
-          return true;
-        } catch {}
-      }
-      return false;
-    }
-    return pluginName in plugin;
   };
 }
 

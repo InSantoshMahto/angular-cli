@@ -77,10 +77,10 @@
       ]
     },
     "style": {
-      "description": "The file extension or preprocessor to use for style files.",
+      "description": "The file extension or preprocessor to use for style files, or 'none' to skip generating the style file.",
       "type": "string",
       "default": "css",
-      "enum": ["css", "scss", "sass", "less"],
+      "enum": ["css", "scss", "sass", "less", "none"],
       "x-user-analytics": 5
     },
     "type": {
@@ -125,12 +125,6 @@
       "default": false,
       "description": "The declaring NgModule exports this component.",
       "x-user-analytics": 19
-    },
-    "lintFix": {
-      "type": "boolean",
-      "description": "Apply lint fixes after generating the component.",
-      "x-user-analytics": 15,
-      "x-deprecated": "Use \"ng lint --fix\" directly instead."
     }
   },
   "required": ["name"]

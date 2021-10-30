@@ -10,6 +10,7 @@ load("//tools:ts_json_schema.bzl", "ts_json_schema")
 # @external_begin
 load("@bazel_tools//tools/build_defs/pkg:pkg.bzl", "pkg_tar")
 load("@build_bazel_rules_nodejs//:index.bzl", "pkg_npm")
+load("@npm//@angular/dev-infra-private/bazel/api-golden:index.bzl", "api_golden_test_npm_package")
 # @external_end
 
 licenses(["notice"])  # MIT
@@ -28,6 +29,7 @@ ts_json_schema(
 
 ts_library(
     name = "build_webpack",
+    package_name = "@angular-devkit/build-webpack",
     srcs = glob(
         include = ["src/**/*.ts"],
         exclude = [
@@ -86,7 +88,6 @@ ts_library(
         "@npm//@angular/platform-browser-dynamic",
         "@npm//@types/node-fetch",
         "@npm//node-fetch",
-        "@npm//raw-loader",
         "@npm//tslib",
         "@npm//zone.js",
     ],
@@ -118,5 +119,15 @@ pkg_tar(
     extension = "tar.gz",
     strip_prefix = "./npm_package",
     tags = ["manual"],
+)
+
+api_golden_test_npm_package(
+    name = "build_webpack_api",
+    data = [
+        ":npm_package",
+        "//goldens:public-api",
+    ],
+    golden_dir = "angular_cli/goldens/public-api/angular_devkit/build_webpack",
+    npm_package = "angular_cli/packages/angular_devkit/build_webpack/npm_package",
 )
 # @external_end
