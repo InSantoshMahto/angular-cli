@@ -9,19 +9,15 @@
 import { BuilderContext, BuilderOutput, createBuilder } from '@angular-devkit/architect';
 import { getSystemPath, join, normalize } from '@angular-devkit/core';
 import { Config, ConfigOptions } from 'karma';
-import { dirname, resolve } from 'path';
+import { resolve as fsResolve } from 'path';
 import { Observable, from } from 'rxjs';
 import { defaultIfEmpty, switchMap } from 'rxjs/operators';
 import { Configuration } from 'webpack';
 import { ExecutionTransformer } from '../../transforms';
+import { purgeStaleBuildCache } from '../../utils/purge-cache';
 import { assertCompatibleAngularVersion } from '../../utils/version';
 import { generateBrowserWebpackConfigFromContext } from '../../utils/webpack-browser-config';
-import {
-  getCommonConfig,
-  getStylesConfig,
-  getTypeScriptConfig,
-  getWorkerConfig,
-} from '../../webpack/configs';
+import { getCommonConfig, getStylesConfig } from '../../webpack/configs';
 import { SingleTestTransformLoader } from '../../webpack/plugins/single-test-transform';
 import { Schema as BrowserBuilderOptions, OutputHashing } from '../browser/schema';
 import { findTests } from './find-tests';
@@ -37,6 +33,9 @@ async function initialize(
   context: BuilderContext,
   webpackConfigurationTransformer?: ExecutionTransformer<Configuration>,
 ): Promise<[typeof import('karma'), Configuration]> {
+  // Purge old build disk cache.
+  await purgeStaleBuildCache(context);
+
   const { config } = await generateBrowserWebpackConfigFromContext(
     // only two properties are missing:
     // * `outputPath` which is fixed for tests
@@ -59,12 +58,7 @@ async function initialize(
       watch: true,
     },
     context,
-    (wco) => [
-      getCommonConfig(wco),
-      getStylesConfig(wco),
-      getTypeScriptConfig(wco),
-      getWorkerConfig(wco),
-    ],
+    (wco) => [getCommonConfig(wco), getStylesConfig(wco)],
   );
 
   const karma = await import('karma');
@@ -118,9 +112,22 @@ export function execute(
       }
 
       // prepend special webpack loader that will transform test.ts
-      if (options.include && options.include.length > 0) {
-        const mainFilePath = getSystemPath(join(normalize(context.workspaceRoot), options.main));
-        const files = findTests(options.include, dirname(mainFilePath), context.workspaceRoot);
+      if (options.include?.length) {
+        const projectName = context.target?.project;
+        if (!projectName) {
+          throw new Error('The builder requires a target.');
+        }
+
+        const projectMetadata = await context.getProjectMetadata(projectName);
+        const projectSourceRoot = getSystemPath(
+          join(
+            normalize(context.workspaceRoot),
+            (projectMetadata.root as string | undefined) ?? '',
+            (projectMetadata.sourceRoot as string | undefined) ?? '',
+          ),
+        );
+
+        const files = await findTests(options.include, context.workspaceRoot, projectSourceRoot);
         // early exit, no reason to start karma
         if (!files.length) {
           throw new Error(
@@ -137,7 +144,7 @@ export function execute(
         }
 
         rules.unshift({
-          test: mainFilePath,
+          test: fsResolve(context.workspaceRoot, options.main),
           use: {
             // cannot be a simple path as it differs between environments
             loader: SingleTestTransformLoader,
@@ -156,7 +163,7 @@ export function execute(
       };
 
       const config = await karma.config.parseConfig(
-        resolve(context.workspaceRoot, options.karmaConfig),
+        fsResolve(context.workspaceRoot, options.karmaConfig),
         transforms.karmaOptions ? transforms.karmaOptions(karmaOptions) : karmaOptions,
         { promiseConfig: true, throwErrors: true },
       );

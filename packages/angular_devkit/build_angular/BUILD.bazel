@@ -4,14 +4,9 @@
 # found in the LICENSE file at https://angular.io/license
 
 load("@npm//@bazel/jasmine:index.bzl", "jasmine_node_test")
-load("//tools:defaults.bzl", "ts_library")
+load("//tools:defaults.bzl", "pkg_npm", "ts_library")
 load("//tools:ts_json_schema.bzl", "ts_json_schema")
-
-# @external_begin
-load("@bazel_tools//tools/build_defs/pkg:pkg.bzl", "pkg_tar")
-load("@build_bazel_rules_nodejs//:index.bzl", "pkg_npm")
 load("@npm//@angular/dev-infra-private/bazel/api-golden:index.bzl", "api_golden_test_npm_package")
-# @external_end
 
 licenses(["notice"])  # MIT
 
@@ -101,12 +96,15 @@ ts_library(
         "//packages/angular_devkit/core/node",
         "//packages/ngtools/webpack",
         "@npm//@ampproject/remapping",
+        "@npm//@angular/common",
         "@npm//@angular/compiler-cli",
         "@npm//@angular/core",
         "@npm//@angular/localize",
         "@npm//@angular/service-worker",
         "@npm//@babel/core",
         "@npm//@babel/helper-annotate-as-pure",
+        "@npm//@babel/plugin-proposal-async-generator-functions",
+        "@npm//@babel/plugin-transform-async-to-generator",
         "@npm//@babel/plugin-transform-runtime",
         "@npm//@babel/preset-env",
         "@npm//@babel/runtime",
@@ -116,8 +114,6 @@ ts_library(
         "@npm//@types/babel__template",
         "@npm//@types/browserslist",
         "@npm//@types/cacache",
-        "@npm//@types/caniuse-lite",
-        "@npm//@types/copy-webpack-plugin",
         "@npm//@types/glob",
         "@npm//@types/inquirer",
         "@npm//@types/karma",
@@ -126,18 +122,14 @@ ts_library(
         "@npm//@types/node",
         "@npm//@types/parse5-html-rewriting-stream",
         "@npm//@types/postcss-preset-env",
-        "@npm//@types/sass",
         "@npm//@types/semver",
         "@npm//@types/text-table",
-        "@npm//@types/webpack-dev-server",
         "@npm//ajv",
         "@npm//ansi-colors",
         "@npm//babel-loader",
         "@npm//babel-plugin-istanbul",
         "@npm//browserslist",
         "@npm//cacache",
-        "@npm//caniuse-lite",
-        "@npm//circular-dependency-plugin",
         "@npm//copy-webpack-plugin",
         "@npm//core-js",
         "@npm//critters",
@@ -147,6 +139,7 @@ ts_library(
         "@npm//glob",
         "@npm//https-proxy-agent",
         "@npm//inquirer",
+        "@npm//jsonc-parser",
         "@npm//karma",
         "@npm//karma-source-map-support",
         "@npm//less",
@@ -215,20 +208,26 @@ jasmine_node_test(
     srcs = [":build_angular_test_lib"],
 )
 
-# @external_begin
-pkg_npm(
-    name = "npm_package",
-    deps = [
-        ":build_angular",
-    ],
+genrule(
+    name = "license",
+    srcs = ["//:LICENSE"],
+    outs = ["LICENSE"],
+    cmd = "cp $(execpath //:LICENSE) $@",
 )
 
-pkg_tar(
-    name = "npm_package_archive",
-    srcs = [":npm_package"],
-    extension = "tar.gz",
-    strip_prefix = "./npm_package",
-    tags = ["manual"],
+pkg_npm(
+    name = "npm_package",
+    pkg_deps = [
+        "//packages/angular_devkit/architect:package.json",
+        "//packages/angular_devkit/build_webpack:package.json",
+        "//packages/angular_devkit/core:package.json",
+        "//packages/ngtools/webpack:package.json",
+    ],
+    deps = [
+        ":README.md",
+        ":build_angular",
+        ":license",
+    ],
 )
 
 api_golden_test_npm_package(
@@ -240,7 +239,7 @@ api_golden_test_npm_package(
     golden_dir = "angular_cli/goldens/public-api/angular_devkit/build_angular",
     npm_package = "angular_cli/packages/angular_devkit/build_angular/npm_package",
 )
-# @external_end
+
 # Large build_angular specs
 
 ts_library(

@@ -12,7 +12,7 @@ import { Observable, from, isObservable, of } from 'rxjs';
 import { switchMap } from 'rxjs/operators';
 import webpack from 'webpack';
 import WebpackDevServer from 'webpack-dev-server';
-import { getEmittedFiles } from '../utils';
+import { getEmittedFiles, getWebpackConfig } from '../utils';
 import { BuildResult, WebpackFactory, WebpackLoggingCallback } from '../webpack';
 import { Schema as WebpackDevServerBuilderSchema } from './schema';
 
@@ -83,7 +83,7 @@ export function runWebpackDevServer(
 
           const devServer = createWebpackDevServer(webpackCompiler, devServerConfig);
           devServer.startCallback(() => {
-            const address = devServer.server.address();
+            const address = devServer.server?.address();
             if (!address) {
               obs.error(new Error(`Dev-server address info is not defined.`));
 
@@ -112,10 +112,8 @@ export default createBuilder<WebpackDevServerBuilderSchema, DevServerBuildOutput
   (options, context) => {
     const configPath = pathResolve(context.workspaceRoot, options.webpackConfig);
 
-    return from(import(configPath)).pipe(
-      switchMap(({ default: config }: { default: webpack.Configuration }) =>
-        runWebpackDevServer(config, context),
-      ),
+    return from(getWebpackConfig(configPath)).pipe(
+      switchMap((config) => runWebpackDevServer(config, context)),
     );
   },
 );

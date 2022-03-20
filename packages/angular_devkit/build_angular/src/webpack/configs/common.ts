@@ -6,6 +6,7 @@
  * found in the LICENSE file at https://angular.io/license
  */
 
+import { AngularWebpackLoaderPath } from '@ngtools/webpack';
 import CopyWebpackPlugin from 'copy-webpack-plugin';
 import * as path from 'path';
 import { ScriptTarget } from 'typescript';
@@ -15,13 +16,11 @@ import {
   ContextReplacementPlugin,
   RuleSetRule,
   SourceMapDevToolPlugin,
-  debug,
 } from 'webpack';
 import { SubresourceIntegrityPlugin } from 'webpack-subresource-integrity';
 import { AngularBabelLoaderOptions } from '../../babel/webpack-loader';
-import { BuildBrowserFeatures } from '../../utils';
 import { WebpackConfigOptions } from '../../utils/build-options';
-import { allowMangle, profilingEnabled } from '../../utils/environment-options';
+import { allowMangle } from '../../utils/environment-options';
 import { loadEsmModule } from '../../utils/load-esm';
 import {
   CommonJsUsageWarnPlugin,
@@ -30,12 +29,16 @@ import {
   JsonStatsPlugin,
   ScriptsWebpackPlugin,
 } from '../plugins';
+import { NamedChunksPlugin } from '../plugins/named-chunks-plugin';
 import { ProgressPlugin } from '../plugins/progress-plugin';
+import { TransferSizePlugin } from '../plugins/transfer-size-plugin';
+import { createIvyPlugin } from '../plugins/typescript';
 import {
   assetPatterns,
   externalizePackages,
   getCacheSettings,
   getInstrumentationExcludedPaths,
+  getMainFieldsAndConditionNames,
   getOutputHashFormat,
   getStatsOptions,
   globalScriptsByBundleName,
@@ -43,13 +46,25 @@ import {
 
 // eslint-disable-next-line max-lines-per-function
 export async function getCommonConfig(wco: WebpackConfigOptions): Promise<Configuration> {
-  const { root, projectRoot, buildOptions, tsConfig, projectName, sourceRoot } = wco;
+  const {
+    root,
+    projectRoot,
+    buildOptions,
+    tsConfig,
+    projectName,
+    sourceRoot,
+    tsConfigPath,
+    scriptTarget,
+  } = wco;
   const {
     cache,
     codeCoverage,
     crossOrigin = 'none',
     platform = 'browser',
+    aot = true,
     codeCoverageExclude = [],
+    main,
+    polyfills,
     sourceMap: {
       styles: stylesSourceMap,
       scripts: scriptsSourceMap,
@@ -76,23 +91,14 @@ export async function getCommonConfig(wco: WebpackConfigOptions): Promise<Config
   // Load ESM `@angular/compiler-cli` using the TypeScript dynamic import workaround.
   // Once TypeScript provides support for keeping the dynamic import this workaround can be
   // changed to a direct dynamic import.
-  const compilerCliModule = await loadEsmModule<{
-    GLOBAL_DEFS_FOR_TERSER: unknown;
-    default: unknown;
-  }>('@angular/compiler-cli');
-  // If it is not ESM then the values needed will be stored in the `default` property.
-  // TODO_ESM: This can be removed once `@angular/compiler-cli` is ESM only.
   const {
     GLOBAL_DEFS_FOR_TERSER,
     GLOBAL_DEFS_FOR_TERSER_WITH_AOT,
     VERSION: NG_VERSION,
-  } = (
-    compilerCliModule.GLOBAL_DEFS_FOR_TERSER ? compilerCliModule : compilerCliModule.default
-  ) as typeof import('@angular/compiler-cli');
+  } = await loadEsmModule<typeof import('@angular/compiler-cli')>('@angular/compiler-cli');
 
   // determine hashing format
-  const hashFormat = getOutputHashFormat(buildOptions.outputHashing || 'none');
-  const buildBrowserFeatures = new BuildBrowserFeatures(projectRoot);
+  const hashFormat = getOutputHashFormat(buildOptions.outputHashing);
 
   if (buildOptions.progress) {
     extraPlugins.push(new ProgressPlugin(platform));
@@ -119,21 +125,13 @@ export async function getCommonConfig(wco: WebpackConfigOptions): Promise<Config
     }
 
     if (!buildOptions.aot) {
-      const jitPolyfills = 'core-js/proposals/reflect-metadata';
+      const jitPolyfills = require.resolve('core-js/proposals/reflect-metadata');
       if (entryPoints['polyfills']) {
         entryPoints['polyfills'].push(jitPolyfills);
       } else {
         entryPoints['polyfills'] = [jitPolyfills];
       }
     }
-  }
-
-  if (profilingEnabled) {
-    extraPlugins.push(
-      new debug.ProfilingPlugin({
-        outputPath: path.resolve(root, 'chrome-profiler-events.json'),
-      }),
-    );
   }
 
   if (allowedCommonJsDependencies) {
@@ -171,15 +169,6 @@ export async function getCommonConfig(wco: WebpackConfigOptions): Promise<Config
     extraPlugins.push(
       new CopyWebpackPlugin({
         patterns: assetPatterns(root, buildOptions.assets),
-      }),
-    );
-  }
-
-  if (buildOptions.showCircularDependencies) {
-    const CircularDependencyPlugin = require('circular-dependency-plugin');
-    extraPlugins.push(
-      new CircularDependencyPlugin({
-        exclude: /[\\/]node_modules[\\/]/,
       }),
     );
   }
@@ -258,18 +247,37 @@ export async function getCommonConfig(wco: WebpackConfigOptions): Promise<Config
     });
   }
 
+  if (main || polyfills) {
+    extraRules.push({
+      test: tsConfig.options.allowJs ? /\.[cm]?[tj]sx?$/ : /\.[cm]?tsx?$/,
+      loader: AngularWebpackLoaderPath,
+      // The below are known paths that are not part of the TypeScript compilation even when allowJs is enabled.
+      exclude: [/[/\\](?:css-loader|mini-css-extract-plugin|webpack-dev-server|webpack)[/\\]/],
+    });
+    extraPlugins.push(createIvyPlugin(wco, aot, tsConfigPath));
+  }
+
+  if (webWorkerTsConfig) {
+    extraPlugins.push(createIvyPlugin(wco, false, path.resolve(wco.root, webWorkerTsConfig)));
+  }
+
   const extraMinimizers = [];
   if (scriptsOptimization) {
     extraMinimizers.push(
       new JavaScriptOptimizerPlugin({
         define: buildOptions.aot ? GLOBAL_DEFS_FOR_TERSER_WITH_AOT : GLOBAL_DEFS_FOR_TERSER,
         sourcemap: scriptsSourceMap,
-        target: wco.scriptTarget,
-        keepNames: !allowMangle || isPlatformServer,
+        target: scriptTarget,
+        keepIdentifierNames: !allowMangle || isPlatformServer,
+        keepNames: isPlatformServer,
         removeLicenses: buildOptions.extractLicenses,
         advanced: buildOptions.buildOptimizer,
       }),
     );
+  }
+
+  if (platform === 'browser' && (scriptsOptimization || stylesOptimization.minify)) {
+    extraMinimizers.push(new TransferSizePlugin());
   }
 
   const externals: Configuration['externals'] = [...externalDependencies];
@@ -291,7 +299,7 @@ export async function getCommonConfig(wco: WebpackConfigOptions): Promise<Config
     devtool: false,
     target: [
       isPlatformServer ? 'node' : 'web',
-      tsConfig.options.target === ScriptTarget.ES5 ? 'es5' : 'es2015',
+      scriptTarget === ScriptTarget.ES5 ? 'es5' : 'es2015',
     ],
     profile: buildOptions.statsJson,
     resolve: {
@@ -299,10 +307,7 @@ export async function getCommonConfig(wco: WebpackConfigOptions): Promise<Config
       extensions: ['.ts', '.tsx', '.mjs', '.js'],
       symlinks: !buildOptions.preserveSymlinks,
       modules: [tsConfig.options.baseUrl || projectRoot, 'node_modules'],
-      mainFields: isPlatformServer
-        ? ['es2020', 'es2015', 'module', 'main']
-        : ['es2020', 'es2015', 'browser', 'module', 'main'],
-      conditionNames: ['es2020', 'es2015', '...'],
+      ...getMainFieldsAndConditionNames(scriptTarget, isPlatformServer),
     },
     resolveLoader: {
       symlinks: !buildOptions.preserveSymlinks,
@@ -326,7 +331,7 @@ export async function getCommonConfig(wco: WebpackConfigOptions): Promise<Config
     watch: buildOptions.watch,
     watchOptions: {
       poll,
-      ignored: poll === undefined ? undefined : 'node_modules/**',
+      ignored: poll === undefined ? undefined : '**/node_modules/**',
     },
     performance: {
       hints: false,
@@ -336,22 +341,28 @@ export async function getCommonConfig(wco: WebpackConfigOptions): Promise<Config
       /Failed to parse source map from/,
       // https://github.com/webpack-contrib/postcss-loader/blob/bd261875fdf9c596af4ffb3a1a73fe3c549befda/src/index.js#L153-L158
       /Add postcss as project dependency/,
+      // esbuild will issue a warning, while still hoists the @charset at the very top.
+      // This is caused by a bug in css-loader https://github.com/webpack-contrib/css-loader/issues/1212
+      /"@charset" must be the first rule in the file/,
     ],
     module: {
       // Show an error for missing exports instead of a warning.
       strictExportPresence: true,
-
-      parser:
-        webWorkerTsConfig === undefined
-          ? {
-              javascript: {
-                worker: false,
-                url: false,
-              },
-            }
-          : undefined,
-
+      parser: {
+        javascript: {
+          // Disable auto URL asset module creation. This doesn't effect `new Worker(new URL(...))`
+          // https://webpack.js.org/guides/asset-modules/#url-assets
+          url: false,
+          worker: !!webWorkerTsConfig,
+        },
+      },
       rules: [
+        {
+          test: /\.?(svg|html)$/,
+          // Only process HTML and SVG which are known Angular component resources.
+          resourceQuery: /\?ngResource/,
+          type: 'asset/source',
+        },
         {
           // Mark files inside `rxjs/add` as containing side effects.
           // If this is fixed upstream and the fixed version becomes the minimum
@@ -363,13 +374,15 @@ export async function getCommonConfig(wco: WebpackConfigOptions): Promise<Config
           test: /\.[cm]?[tj]sx?$/,
           // The below is needed due to a bug in `@babel/runtime`. See: https://github.com/babel/babel/issues/12824
           resolve: { fullySpecified: false },
-          exclude: [/[/\\](?:core-js|@babel|tslib|web-animations-js|web-streams-polyfill)[/\\]/],
+          exclude: [
+            /[/\\](?:core-js|@babel|tslib|web-animations-js|web-streams-polyfill|whatwg-url)[/\\]/,
+          ],
           use: [
             {
               loader: require.resolve('../../babel/webpack-loader'),
               options: {
                 cacheDirectory: (cache.enabled && path.join(cache.path, 'babel-webpack')) || false,
-                scriptTarget: wco.scriptTarget,
+                scriptTarget,
                 aot: buildOptions.aot,
                 optimize: buildOptions.buildOptimizer,
                 instrumentCode: codeCoverage
@@ -386,6 +399,7 @@ export async function getCommonConfig(wco: WebpackConfigOptions): Promise<Config
       ],
     },
     experiments: {
+      backCompat: false,
       syncWebAssembly: true,
       asyncWebAssembly: true,
     },
@@ -393,7 +407,7 @@ export async function getCommonConfig(wco: WebpackConfigOptions): Promise<Config
       level: verbose ? 'verbose' : 'error',
     },
     stats: getStatsOptions(verbose),
-    cache: getCacheSettings(wco, buildBrowserFeatures.supportedBrowsers, NG_VERSION.full),
+    cache: getCacheSettings(wco, NG_VERSION.full),
     optimization: {
       minimizer: extraMinimizers,
       moduleIds: 'deterministic',
@@ -425,7 +439,7 @@ export async function getCommonConfig(wco: WebpackConfigOptions): Promise<Config
         },
       },
     },
-    plugins: [new DedupeModuleResolvePlugin({ verbose }), ...extraPlugins],
+    plugins: [new NamedChunksPlugin(), new DedupeModuleResolvePlugin({ verbose }), ...extraPlugins],
     node: false,
   };
 }

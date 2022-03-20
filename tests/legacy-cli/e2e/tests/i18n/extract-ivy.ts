@@ -1,6 +1,6 @@
 import { join } from 'path';
 import { getGlobalVariable } from '../../utils/env';
-import { writeFile } from '../../utils/fs';
+import { expectFileToMatch, writeFile } from '../../utils/fs';
 import { installPackage, uninstallPackage } from '../../utils/packages';
 import { ng } from '../../utils/process';
 import { updateJsonFile } from '../../utils/project';
@@ -30,6 +30,8 @@ export default async function () {
   if (message5.includes('WARNING')) {
     throw new Error('Expected no warnings to be shown');
   }
+
+  expectFileToMatch('messages.xlf', 'Hello world');
 
   await uninstallPackage('@angular/localize');
 }

@@ -8,32 +8,31 @@
 
 import { createConsoleLogger } from '@angular-devkit/core/node';
 import { format } from 'util';
-import { runCommand } from '../../models/command-runner';
-import { colors, removeColor } from '../../utilities/color';
-import { AngularWorkspace, getWorkspaceRaw } from '../../utilities/config';
-import { writeErrorToLogFile } from '../../utilities/log-file';
-import { findWorkspaceFile } from '../../utilities/project';
+import { CommandModuleError } from '../../src/command-builder/command-module';
+import { runCommand } from '../../src/command-builder/command-runner';
+import { colors, removeColor } from '../../src/utilities/color';
+import { AngularWorkspace, getWorkspaceRaw } from '../../src/utilities/config';
+import { ngDebug } from '../../src/utilities/environment-options';
+import { writeErrorToLogFile } from '../../src/utilities/log-file';
+import { findWorkspaceFile } from '../../src/utilities/project';
 
-export { VERSION, Version } from '../../models/version';
-
-const debugEnv = process.env['NG_DEBUG'];
-const isDebug = debugEnv !== undefined && debugEnv !== '0' && debugEnv.toLowerCase() !== 'false';
+export { VERSION } from '../../src/utilities/version';
 
 /* eslint-disable no-console */
 export default async function (options: { testing?: boolean; cliArgs: string[] }) {
   // This node version check ensures that the requirements of the project instance of the CLI are met
-  const version = process.versions.node.split('.').map((part) => Number(part));
-  if (version[0] < 12 || (version[0] === 12 && version[1] < 20)) {
+  const [major, minor] = process.versions.node.split('.').map((part) => Number(part));
+  if (major < 14 || (major === 14 && minor < 15)) {
     process.stderr.write(
       `Node.js version ${process.version} detected.\n` +
-        'The Angular CLI requires a minimum v12.20.\n\n' +
+        'The Angular CLI requires a minimum v14.15.\n\n' +
         'Please update your Node.js version or visit https://nodejs.org/ for additional instructions.\n',
     );
 
     return 3;
   }
 
-  const logger = createConsoleLogger(isDebug, process.stdout, process.stderr, {
+  const logger = createConsoleLogger(ngDebug, process.stdout, process.stderr, {
     info: (s) => (colors.enabled ? s : removeColor(s)),
     debug: (s) => (colors.enabled ? s : removeColor(s)),
     warn: (s) => (colors.enabled ? colors.bold.yellow(s) : removeColor(s)),
@@ -75,16 +74,11 @@ export default async function (options: { testing?: boolean; cliArgs: string[] }
   }
 
   try {
-    const maybeExitCode = await runCommand(options.cliArgs, logger, workspace);
-    if (typeof maybeExitCode === 'number') {
-      console.assert(Number.isInteger(maybeExitCode));
-
-      return maybeExitCode;
-    }
-
-    return 0;
+    return await runCommand(options.cliArgs, logger, workspace);
   } catch (err) {
-    if (err instanceof Error) {
+    if (err instanceof CommandModuleError) {
+      logger.fatal(`Error: ${err.message}`);
+    } else if (err instanceof Error) {
       try {
         const logPath = writeErrorToLogFile(err);
         logger.fatal(

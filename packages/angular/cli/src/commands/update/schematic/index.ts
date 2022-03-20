@@ -10,11 +10,8 @@ import { logging, tags } from '@angular-devkit/core';
 import { Rule, SchematicContext, SchematicsException, Tree } from '@angular-devkit/schematics';
 import * as npa from 'npm-package-arg';
 import * as semver from 'semver';
-import { Dependency, JsonSchemaForNpmPackageJsonFiles } from '../../../../utilities/package-json';
-import {
-  NpmRepositoryPackageJson,
-  getNpmPackageJson,
-} from '../../../../utilities/package-metadata';
+import { Dependency, JsonSchemaForNpmPackageJsonFiles } from '../../../utilities/package-json';
+import { NpmRepositoryPackageJson, getNpmPackageJson } from '../../../utilities/package-metadata';
 import { Schema as UpdateSchema } from './schema';
 
 type VersionRange = string & { __VERSION_RANGE: void };
@@ -460,17 +457,15 @@ function _usageMessage(
         target,
       };
     })
-    .filter(({ info, version, target }) => {
-      return target && semver.compare(info.installed.version, version) < 0;
-    })
-    .filter(({ target }) => {
-      return target['ng-update'];
-    })
+    .filter(
+      ({ info, version, target }) =>
+        target?.['ng-update'] && semver.compare(info.installed.version, version) < 0,
+    )
     .map(({ name, info, version, tag, target }) => {
       // Look for packageGroup.
-      const packageGroup = target['ng-update']?.['packageGroup'];
+      const packageGroup = target['ng-update']['packageGroup'];
       if (packageGroup) {
-        const packageGroupName = packageGroup?.[0];
+        const packageGroupName = target['ng-update']['packageGroupName'] || packageGroup[0];
         if (packageGroupName) {
           if (packageGroups.has(name)) {
             return null;
@@ -854,9 +849,7 @@ export default function (options: UpdateSchema): Rule {
     const npmPackageJsonMap = allPackageMetadata.reduce((acc, npmPackageJson) => {
       // If the package was not found on the registry. It could be private, so we will just
       // ignore. If the package was part of the list, we will error out, but will simply ignore
-      // if it's either not requested (so just part of package.json. silently) or if it's a
-      // `--all` situation. There is an edge case here where a public package peer depends on a
-      // private one, but it's rare enough.
+      // if it's either not requested (so just part of package.json. silently).
       if (!npmPackageJson.name) {
         if (npmPackageJson.requestedName && packages.has(npmPackageJson.requestedName)) {
           throw new SchematicsException(

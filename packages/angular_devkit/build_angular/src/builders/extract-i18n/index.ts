@@ -13,18 +13,19 @@ import type { ɵParsedMessage as LocalizeMessage } from '@angular/localize';
 import type { Diagnostics } from '@angular/localize/tools';
 import * as fs from 'fs';
 import * as path from 'path';
-import webpack from 'webpack';
+import webpack, { Configuration } from 'webpack';
 import { ExecutionTransformer } from '../../transforms';
 import { createI18nOptions } from '../../utils/i18n-options';
 import { loadEsmModule } from '../../utils/load-esm';
+import { purgeStaleBuildCache } from '../../utils/purge-cache';
 import { assertCompatibleAngularVersion } from '../../utils/version';
 import { generateBrowserWebpackConfigFromContext } from '../../utils/webpack-browser-config';
-import { getCommonConfig, getTypeScriptConfig, getWorkerConfig } from '../../webpack/configs';
+import { getCommonConfig } from '../../webpack/configs';
 import { createWebpackLoggingCallback } from '../../webpack/utils/stats';
 import { Schema as BrowserBuilderOptions, OutputHashing } from '../browser/schema';
 import { Format, Schema } from './schema';
 
-export type ExtractI18nBuilderOptions = Schema & JsonObject;
+export type ExtractI18nBuilderOptions = Schema;
 
 function getI18nOutfile(format: string | undefined) {
   switch (format) {
@@ -130,6 +131,9 @@ export async function execute(
   // Check Angular version.
   assertCompatibleAngularVersion(context.workspaceRoot);
 
+  // Purge old build disk cache.
+  await purgeStaleBuildCache(context);
+
   const browserTarget = targetFromTargetString(options.browserTarget);
   const browserOptions = await context.validateOptions<JsonObject & BrowserBuilderOptions>(
     await context.getTargetOptions(browserTarget),
@@ -195,11 +199,9 @@ export async function execute(
       // Default value for legacy message ids is currently true
       useLegacyIds = wco.tsConfig.options.enableI18nLegacyMessageIdFormat ?? true;
 
-      const partials = [
+      const partials: (Promise<Configuration> | Configuration)[] = [
         { plugins: [new NoEmitPlugin()] },
         getCommonConfig(wco),
-        getTypeScriptConfig(wco),
-        getWorkerConfig(wco),
       ];
 
       // Add Ivy application file extractor support

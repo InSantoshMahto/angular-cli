@@ -6,10 +6,10 @@
  * found in the LICENSE file at https://angular.io/license
  */
 
-import remapping from '@ampproject/remapping';
 import { custom } from 'babel-loader';
 import { ScriptTarget } from 'typescript';
 import { loadEsmModule } from '../utils/load-esm';
+import { VERSION } from '../utils/package-version';
 import { ApplicationPresetOptions, I18nPluginCreators } from './presets/application';
 
 interface AngularCustomOptions extends Omit<ApplicationPresetOptions, 'instrumentCode'> {
@@ -21,9 +21,6 @@ interface AngularCustomOptions extends Omit<ApplicationPresetOptions, 'instrumen
 }
 
 export type AngularBabelLoaderOptions = AngularCustomOptions & Record<string, unknown>;
-
-// Extract Sourcemap input type from the remapping function since it is not currently exported
-type SourceMapInput = Exclude<Parameters<typeof remapping>[0], unknown[]>;
 
 /**
  * Cached instance of the compiler-cli linker's needsLinking function.
@@ -62,6 +59,7 @@ async function requiresLinking(path: string, source: string): Promise<boolean> {
   return needsLinking(path, source);
 }
 
+// eslint-disable-next-line max-lines-per-function
 export default custom<ApplicationPresetOptions>(() => {
   const baseOptions = Object.freeze({
     babelrc: false,
@@ -73,7 +71,7 @@ export default custom<ApplicationPresetOptions>(() => {
   });
 
   return {
-    async customOptions(options, { source }) {
+    async customOptions(options, { source, map }) {
       const { i18n, scriptTarget, aot, optimize, instrumentCode, ...rawOptions } =
         options as AngularBabelLoaderOptions;
 
@@ -90,15 +88,14 @@ export default custom<ApplicationPresetOptions>(() => {
 
       // Analyze file for linking
       if (await requiresLinking(this.resourcePath, source)) {
-        if (!linkerPluginCreator) {
-          // Load ESM `@angular/compiler-cli/linker/babel` using the TypeScript dynamic import workaround.
-          // Once TypeScript provides support for keeping the dynamic import this workaround can be
-          // changed to a direct dynamic import.
-          const linkerBabelModule = await loadEsmModule<
-            typeof import('@angular/compiler-cli/linker/babel')
-          >('@angular/compiler-cli/linker/babel');
-          linkerPluginCreator = linkerBabelModule.createEs2015LinkerPlugin;
-        }
+        // Load ESM `@angular/compiler-cli/linker/babel` using the TypeScript dynamic import workaround.
+        // Once TypeScript provides support for keeping the dynamic import this workaround can be
+        // changed to a direct dynamic import.
+        linkerPluginCreator ??= (
+          await loadEsmModule<typeof import('@angular/compiler-cli/linker/babel')>(
+            '@angular/compiler-cli/linker/babel',
+          )
+        ).createEs2015LinkerPlugin;
 
         customOptions.angularLinker = {
           shouldLink: true,
@@ -135,20 +132,29 @@ export default custom<ApplicationPresetOptions>(() => {
         // During the transition, this will always attempt to load the entry point for each file.
         // This will only occur during prerelease and will be automatically corrected once the new
         // entry point exists.
-        // TODO_ESM: Make import failure an error once the `tools` entry point exists.
         if (i18nPluginCreators === undefined) {
           // Load ESM `@angular/localize/tools` using the TypeScript dynamic import workaround.
           // Once TypeScript provides support for keeping the dynamic import this workaround can be
           // changed to a direct dynamic import.
-          try {
-            i18nPluginCreators = await loadEsmModule<I18nPluginCreators>('@angular/localize/tools');
-          } catch {}
+          i18nPluginCreators = await loadEsmModule<I18nPluginCreators>('@angular/localize/tools');
         }
 
         customOptions.i18n = {
           ...(i18n as NonNullable<ApplicationPresetOptions['i18n']>),
           pluginCreators: i18nPluginCreators,
         };
+
+        // Add translation files as dependencies of the file to support rebuilds
+        // Except for `@angular/core` which needs locale injection but has no translations
+        if (
+          customOptions.i18n.translationFiles &&
+          !/[\\/]@angular[\\/]core/.test(this.resourcePath)
+        ) {
+          for (const file of customOptions.i18n.translationFiles) {
+            this.addDependency(file);
+          }
+        }
+
         shouldProcess = true;
       }
 
@@ -176,6 +182,7 @@ export default custom<ApplicationPresetOptions>(() => {
         // `babel-plugin-istanbul` has it's own includes but we do the below so that we avoid running the the loader.
         customOptions.instrumentCode = {
           includedBasePath: instrumentCode.includedBasePath,
+          inputSourceMap: map,
         };
 
         shouldProcess = true;
@@ -186,7 +193,7 @@ export default custom<ApplicationPresetOptions>(() => {
         ...baseOptions,
         ...rawOptions,
         cacheIdentifier: JSON.stringify({
-          buildAngular: require('../../package.json').version,
+          buildAngular: VERSION,
           customOptions,
           baseOptions,
           rawOptions,
@@ -207,7 +214,7 @@ export default custom<ApplicationPresetOptions>(() => {
         // Using `false` disables babel from attempting to locate sourcemaps or process any inline maps.
         // The babel types do not include the false option even though it is valid
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        inputSourceMap: false as any,
+        inputSourceMap: configuration.options.inputSourceMap ?? (false as any),
         presets: [
           ...(configuration.options.presets || []),
           [
@@ -230,21 +237,6 @@ export default custom<ApplicationPresetOptions>(() => {
           ],
         ],
       };
-    },
-    result(result, { map: inputSourceMap }) {
-      if (result.map && inputSourceMap) {
-        // Merge the intermediate sourcemap generated by babel with the input source map.
-        // The casting is required due to slight differences in the types for babel and
-        // `@ampproject/remapping` source map objects but both are compatible with Webpack.
-        // This method for merging is used because it provides more accurate output
-        // and is faster while using less memory.
-        result.map = remapping(
-          [result.map as SourceMapInput, inputSourceMap as SourceMapInput],
-          () => null,
-        ) as typeof result.map;
-      }
-
-      return result;
     },
   };
 });

@@ -14,13 +14,13 @@ if ('NG_CLI_ANALYTICS' in process.env) {
 }
 
 try {
-  var analytics = require('../../models/analytics');
+  var analytics = require('../../src/analytics/analytics');
 
   analytics
-    .hasGlobalAnalyticsConfiguration()
+    .getAnalytics('global')
     .then((hasGlobalConfig) => {
       if (!hasGlobalConfig) {
-        return analytics.promptGlobalAnalytics();
+        return analytics.promptAnalytics(true /** global */);
       }
     })
     .catch(() => {});

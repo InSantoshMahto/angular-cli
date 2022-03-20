@@ -10,8 +10,6 @@ import { BuildResult } from '@angular-devkit/build-webpack';
 import { ConfigOptions } from 'karma';
 import { Configuration } from 'webpack';
 import { DevServerBuildOutput } from '@angular-devkit/build-webpack';
-import { json } from '@angular-devkit/core';
-import { JsonObject } from '@angular-devkit/core';
 import { Observable } from 'rxjs';
 import webpack from 'webpack';
 import { WebpackLoggingCallback } from '@angular-devkit/build-webpack';
@@ -43,7 +41,8 @@ export interface BrowserBuilderOptions {
     deployUrl?: string;
     extractLicenses?: boolean;
     fileReplacements?: FileReplacement[];
-    i18nMissingTranslation?: I18NMissingTranslation;
+    i18nDuplicateTranslation?: I18NTranslation;
+    i18nMissingTranslation?: I18NTranslation;
     index: IndexUnion;
     inlineStyleLanguage?: InlineStyleLanguage;
     localize?: Localize;
@@ -58,14 +57,12 @@ export interface BrowserBuilderOptions {
     preserveSymlinks?: boolean;
     progress?: boolean;
     resourcesOutputPath?: string;
-    scripts?: ExtraEntryPoint[];
+    scripts?: ScriptElement[];
     serviceWorker?: boolean;
-    // @deprecated
-    showCircularDependencies?: boolean;
     sourceMap?: SourceMapUnion;
     statsJson?: boolean;
     stylePreprocessorOptions?: StylePreprocessorOptions;
-    styles?: ExtraEntryPoint[];
+    styles?: StyleElement[];
     subresourceIntegrity?: boolean;
     tsConfig: string;
     vendorChunk?: boolean;
@@ -75,7 +72,7 @@ export interface BrowserBuilderOptions {
 }
 
 // @public
-export type BrowserBuilderOutput = json.JsonObject & BuilderOutput & {
+export type BrowserBuilderOutput = BuilderOutput & {
     baseOutputPath: string;
     outputPaths: string[];
     outputPath: string;
@@ -105,7 +102,7 @@ export enum CrossOrigin {
 }
 
 // @public (undocumented)
-export type DevServerBuilderOptions = Schema & json.JsonObject;
+export type DevServerBuilderOptions = Schema;
 
 // @public
 export type DevServerBuilderOutput = DevServerBuildOutput & {
@@ -152,17 +149,7 @@ export function executeServerBuilder(options: ServerBuilderOptions, context: Bui
 export type ExecutionTransformer<T> = (input: T) => T | Promise<T>;
 
 // @public (undocumented)
-export type ExtractI18nBuilderOptions = Schema_2 & JsonObject;
-
-// @public (undocumented)
-export type ExtraEntryPoint = ExtraEntryPointObject | string;
-
-// @public (undocumented)
-export interface ExtraEntryPointObject {
-    bundleName?: string;
-    inject?: boolean;
-    input: string;
-}
+export type ExtractI18nBuilderOptions = Schema_2;
 
 // @public (undocumented)
 export interface FileReplacement {
@@ -192,10 +179,10 @@ export interface KarmaBuilderOptions {
     preserveSymlinks?: boolean;
     progress?: boolean;
     reporters?: string[];
-    scripts?: ExtraEntryPoint_2[];
+    scripts?: ScriptElement_2[];
     sourceMap?: SourceMapUnion_2;
     stylePreprocessorOptions?: StylePreprocessorOptions_2;
-    styles?: ExtraEntryPoint_2[];
+    styles?: StyleElement_2[];
     tsConfig: string;
     watch?: boolean;
     webWorkerTsConfig?: string;
@@ -259,7 +246,8 @@ export interface ServerBuilderOptions {
     externalDependencies?: string[];
     extractLicenses?: boolean;
     fileReplacements?: FileReplacement_3[];
-    i18nMissingTranslation?: I18NMissingTranslation_2;
+    i18nDuplicateTranslation?: I18NTranslation_2;
+    i18nMissingTranslation?: I18NTranslation_2;
     inlineStyleLanguage?: InlineStyleLanguage_3;
     localize?: Localize_2;
     main: string;
@@ -271,8 +259,6 @@ export interface ServerBuilderOptions {
     preserveSymlinks?: boolean;
     progress?: boolean;
     resourcesOutputPath?: string;
-    // @deprecated
-    showCircularDependencies?: boolean;
     sourceMap?: SourceMapUnion_3;
     statsJson?: boolean;
     stylePreprocessorOptions?: StylePreprocessorOptions_3;
@@ -282,7 +268,7 @@ export interface ServerBuilderOptions {
 }
 
 // @public
-export type ServerBuilderOutput = json.JsonObject & BuilderOutput & {
+export type ServerBuilderOutput = BuilderOutput & {
     baseOutputPath: string;
     outputPaths: string[];
     outputPath: string;
